@@ -339,6 +339,12 @@ Voir §10.1. `add_combatant` moteur n'accepte aujourd'hui que `preparing` ; le c
 
 L'unicité `(guild_id, channel_id)` pour combats ouverts reste en base ; l'API masque ce détail via defaults et génération de `channel_id`. Assouplir l'unicité globale = chantier repository distinct, **non requis** lot 1.
 
+### 10.4 Dette post-lot 1 (2026-08-07)
+
+| Dette | État | Résolution cible |
+|---|---|---|
+| **`COMBAT_STATE_UNSUPPORTED` non câblé** | Identifiée | Mapper `CombatStateVersionError` → `409` + code §3.3 sur le **chemin de chargement** d'état combat — pas route par route. Toutes les routes qui chargent un blob (`GET /v1/combats/{id}`, `activate`, `attack-roll`, `close`, fiche fusionnée via `load_combat`) passent par le même point ; le mapping doit vivre **là** (couche application ou helper API partagé), pas dupliqué dans chaque handler. Aujourd'hui : blob incompatible → `500 INTERNAL_ERROR` (indistinguable d'un bug serveur). Aucun blob legacy en circulation à date — non bloquant lot 1. |
+
 ---
 
 ## Références
