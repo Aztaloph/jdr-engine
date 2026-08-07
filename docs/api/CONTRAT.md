@@ -2,14 +2,14 @@
 
 | Attribut | Valeur |
 |---|---|
-| **Statut** | Accepté (arbitrages mainteneur 2026-08-07) |
+| **Statut** | Accepté (arbitrages mainteneur 2026-08-07 ; amendement lot 2 attaque 2026-08-07) |
 | **Date** | 2026-08-07 |
 | **Périmètre** | Décisions coûteuses à revenir en arrière une fois qu'un client consomme l'API |
 | **Hors périmètre** | Spécification endpoint par endpoint, schémas champ par champ, catalogue d'erreurs exhaustif |
 
 **Critère de tri** : une décision entre ici si la changer plus tard **casse un client existant** ou **impose une migration**. Tout le reste sera découvert à l'implémentation et est listé comme hors contrat.
 
-**État de référence moteur** : 866 tests ; combat persistant (initiative, tours, attaques, sorts, conditions, concentration) ; registre d'effets unifié (ADR-006) ; API existante limitée au personnage hors combat (`interfaces/api/`, `docs/API_LOCAL.md`).
+**État de référence moteur** : 886 tests ; lot 1 API livré (`7878e9a`) ; combat persistant (initiative, tours, attaques, sorts, conditions, concentration) ; registre d'effets unifié (ADR-006).
 
 **Préfixe URL** : toutes les routes contractuelles vivent sous **`/v1/`**.
 
@@ -44,7 +44,8 @@ Le vocabulaire exposé devient **contrat de stabilité** : tout identifiant stri
 | **`ActiveEffect`** | **Oui** (snapshot) | Liste `active_effects[]` avec les champs de `ActiveEffect.to_dict()` | État observable des buffs/conditions mécaniques ; mutations via actions API, pas via écriture directe |
 | **`ActiveEffectRegistry`** | **Non** | — | Structure runtime (`CombatManager._effect_registries`) ; reconstruite à partir du blob + hydratation (`load_combat`) ; aucune opération client légitime sur le registre lui-même |
 | **Collecteurs `collect_*`** (`rules/effects/collect.py`) | **Non** | — | Traduction registre → `effects[]` pour `d20.py` ; détail d'implémentation ADR-006 décision 3 |
-| **Distinction attaquant / défenseur du collecteur** | **Non** (mécanisme) ; **Oui** (sémantique) | Les actions d'attaque prennent `attacker_id` + `target_id` (identifiants **combattant**) ; le client fournit le **contexte de portée** (`melee_weapon`, `ranged_weapon`) | Le paramètre interne `defender_id` de `roll_d20_for_combatant` est un détail de pipeline ; le contrat API reproduit la paire attaquant/cible + flags de requête |
+| **Distinction attaquant / défenseur du collecteur** | **Non** (mécanisme) ; **Oui** (sémantique) | Les actions d'attaque prennent `attacker_id` + `target_id` (identifiants **combattant**) ; le client fournit le **contexte de portée** (`melee_weapon`, `ranged_weapon`) et une **référence d'arme** (`weapon_id` — §2.7) | Le paramètre interne `defender_id` de `roll_d20_for_combatant` est un détail de pipeline ; le contrat API reproduit la paire attaquant/cible + flags de requête |
+| **Résolution attaque d'arme (lot 2)** | **Oui** | `POST /v1/combats/{id}/attack` — réponse fusionnée jet + dégâts + PV cible (§2.7) | Orchestration API de `resolve_attack_roll` + `apply_damage` ; pas d'état pending dans le blob |
 | **`D20RollRequest`** | **Non** en entrée brute ; **Oui** en sortie partielle | Entrée : sous-ensemble explicite « contexte de jet » par type d'action ; Sortie : objet `d20` dans les résultats (DTO `_d20_result_to_dict`, sans `modifier_breakdown`) | Dataclass interne riche et évolutive |
 | **`D20RollResult`** | **Oui** | Objet structuré dans la réponse d'action | Résultat métier ; déjà sérialisé pour l'API personnage |
 | **`effect_id` / `source_id`** | **Oui** | Champs string dans `active_effects[]` et traces dans `applied_effects` | Vocabulaire moteur stable |
@@ -155,6 +156,60 @@ La recherche du combat ouvert se fait **uniquement** par `character_id` — **sa
 
 **Alternative écartée** : fiche = SQLite seule pendant le combat — rejetée pour l'objectif parcours joueur unifié.
 
+### 2.7 Attaque d'arme fusionnée (lot 2 — 2026-08-07)
+
+**Décision mainteneur** : **option A (fusionné)** — une requête API orchestre jet d'attaque et application des dégâts. Pas de modèle « attaque pending » dans le blob ; pas de second endpoint `apply-damage` pour les armes en lot 2.
+
+#### Route et breaking change lot 1
+
+| Lot 1 (livré) | Lot 2 (cible) |
+|---|---|
+| `POST /v1/combats/{id}/attack-roll` — jet seul | **`POST /v1/combats/{id}/attack`** — résolution complète |
+
+**Breaking change assumé** : `attack-roll` est **retiré** sans redirect permanent. Fenêtre courte (lot 1 récemment poussé) ; le nom « attack-roll » devient trompeur dès que les dégâts sont inclus.
+
+#### Corps de requête (intention)
+
+| Champ | Statut |
+|---|---|
+| `attacker_id` | Obligatoire — identifiant **combattant** |
+| `target_id` | Obligatoire — identifiant **combattant** |
+| `melee_weapon` / `ranged_weapon` | Obligatoire — exclusifs (contexte de portée, lot 1) |
+| `weapon_id` | Obligatoire — référence arme (compendium ou inventaire validé moteur) |
+
+Le client **ne fournit pas** : `attack_bonus`, `damage_amount`, `hit`, `critical` — mêmes principes que le lot 1 (modificateurs dérivés fiche moteur ; dégâts calculés serveur).
+
+#### Sémantique serveur
+
+1. Consommer le budget `action` (`resolve_attack_roll` moteur).
+2. Si toucher : `apply_damage` avec notation dérivée de `weapon_id` + `critical` du jet.
+3. Si manqué : pas de dégâts ; budget déjà consommé.
+4. Overlay PV mis à jour ; fiche SQLite **inchangée** (ADR-005).
+
+**Anti-rejeu** : le budget d'action consommé en étape 1 — pas d'`Idempotency-Key` requis pour ce cas (contrat §2.3).
+
+**Pause narrative (UI)** : la réponse est **complète** dès la réponse HTTP ; l'UI peut révéler jet puis PV en deux temps **sans** figer la base ni état pending serveur.
+
+#### Corps de réponse (intention — blocs séparés)
+
+Trois blocs **distincts et lisibles** — le client ne doit pas rappeler `GET /v1/combats/{id}` pour animer l'action :
+
+| Bloc | Contenu |
+|---|---|
+| `attack` | `d20` (DTO existant) + `outcome` (`hit`, `critical`, `automatic_miss`, `target_ac`) |
+| `damage` | **`null`** si manqué ; sinon jet + application (`notation`, `rolls`, `total`, `critical`, `hp_before`, `hp_after`, `damage_dealt`) |
+| `target` | `combatant_id`, `hp_current`, `hp_max` **après** résolution (overlay post-action) |
+
+Données seulement — pas de champ calculé UI (« peut agir », libellés formatés).
+
+#### Alternatives écartées
+
+| Option | Motif |
+|---|---|
+| **Séparé** (`attack-roll` + `apply-damage`) | État pending blob, idempotence, zombies tour — voir `docs/api/LOT2_CADRAGE_DEGATS.md` |
+| **PV serveur figés** pendant pause narrative | Besoin présentation ; coût modèle sans gain mécanique |
+| **`damage_amount` client** | Contournement des règles — rejeté |
+
 ---
 
 ## 3. Format d'erreur
@@ -215,7 +270,8 @@ Migration : l'API personnage actuelle (`detail` string) adopte ce format — bre
 
 - Préfixe **`/v1/`** sur toutes les routes contractuelles.
 - Ressources plurielles snake_case : `/v1/characters`, `/v1/combats`.
-- Actions : kebab-case — `/v1/combats/{id}/attack-roll`, `/v1/combats/{id}/close`.
+- Actions : kebab-case — `/v1/combats/{id}/attack`, `/v1/combats/{id}/close`.
+- **Lot 1 → lot 2** : `attack-roll` remplacé par `attack` (§2.7) — breaking change documenté.
 - Diagnostic dev (`/debug/…`) hors contrat prod ; non préfixé ou explicitement exclu du contrat v1.
 
 ### 4.2 Champs JSON
@@ -228,34 +284,43 @@ snake_case ; vocabulaire SRD ; modes de jet `normal` / `avantage` / `desavantage
 
 ---
 
-## 5. Périmètre du premier lot implémentable
+## 5. Périmètre des lots implémentables
 
 ### 5.1 Parcours cible (bout-en-bout)
 
 1. `GET /v1/characters/{id}/sheet` — fiche initiale
 2. `POST /v1/combats` — body minimal `{ "character_ids": [...] }` ; vérification unicité lobby
 3. `POST /v1/combats/{id}/activate`
-4. `POST /v1/combats/{id}/attack-roll` — jet d'attaque avec contexte portée
+4. `POST /v1/combats/{id}/attack` — attaque d'arme complète (jet + dégâts si toucher — §2.7)
 5. `GET /v1/combats/{id}` — état rencontre
-6. `GET /v1/characters/{id}/sheet` — **fiche fusionnée** (PV overlay, effets actifs)
+6. `GET /v1/characters/{id}/sheet` — **fiche fusionnée** si combat ouvert (`preparing` ou `active` — §2.6) : PV overlay, effets actifs
 7. `POST /v1/combats/{id}/close` — clôture + sync PV fiche
 
 ### 5.2 Ressources (intention, sans schémas)
 
-| Intention | Route | Body (création) |
+| Intention | Route | Body |
 |---|---|---|
 | Fiche (fusionnée si combat ouvert) | `GET /v1/characters/{character_id}/sheet` | — |
 | Créer rencontre (lobby) | `POST /v1/combats` | `character_ids` obligatoire ; `channel_id`, `guild_id` optionnels |
 | Lire rencontre | `GET /v1/combats/{combat_id}` | — |
 | Activer | `POST /v1/combats/{combat_id}/activate` | — |
-| Jet d'attaque | `POST /v1/combats/{combat_id}/attack-roll` | — |
+| Attaque d'arme (fusionnée) | `POST /v1/combats/{combat_id}/attack` | §2.7 |
 | Clore | `POST /v1/combats/{combat_id}/close` | — |
 
-**Tests lot 1 (commit 3)** : après `close`, les personnages du combat clos doivent pouvoir entrer dans un **nouveau** combat — l'invariant lobby ne doit pas les bloquer indéfiniment.
+### 5.3 Lot 1 — livré
 
-Routes personnage existantes (cast, repos) migrent sous `/v1/` avec le format d'erreur unifié.
+- Format erreur, préfixe `/v1/`, cycle de vie combat, invariant lobby, fiche fusionnée lecture, `attack-roll` jet seul (**remplacé lot 2**).
+- **Tests** : libération personnages après `close` ; parcours E2E sans dégâts appliqués.
 
-**Hors lot 1** : sorts/conditions/dégâts combat, avancement de tour, création personnage, debug events.
+### 5.4 Lot 2 — attaque d'arme fusionnée (à implémenter)
+
+- Remplacement `attack-roll` → `attack` (breaking change §2.7).
+- DTO `weapon_attack_result_to_dict` (ou équivalent) — blocs `attack`, `damage`, `target`.
+- Résolution `weapon_id` → notation dégâts moteur.
+- Parcours §5.1 mis à jour (étape 4 + PV overlay post-attaque étape 6).
+- Cadrage : `docs/api/LOT2_CADRAGE_DEGATS.md` (option A retenue).
+
+**Hors lot 2** : sorts combat, conditions API, `apply-damage` générique exposé, avancement de tour, Extra Attack, état pending, `Idempotency-Key`.
 
 ---
 
@@ -288,9 +353,11 @@ Le code Discord (`bot/`, `interfaces/discord/`) reste en dépôt pour le vocal e
 | ADR-004/006 conditions → registre | ADR realignés |
 | Collecteur `rules/effects/collect.py` | ADR realignés |
 | `close_combat` vs ADR-005 | ADR-005 complété (§ état implémenté) |
-| Format erreur API | Migration prévue lot 1 |
-| Endpoints combat | Lot 1 à implémenter |
-| Tests référence AGENTS.md (645) | **866** mesurés — doc canonique non mise à jour dans ce lot |
+| Format erreur API | Lot 1 ✅ |
+| Endpoints combat cycle de vie | Lot 1 ✅ |
+| `attack-roll` jet seul | Lot 1 ✅ — **remplacé lot 2** |
+| Attaque d'arme fusionnée | Lot 2 — arbitrage 2026-08-07 |
+| Tests référence | **886** mesurés (2026-08-07) |
 
 ---
 
@@ -311,6 +378,10 @@ Le code Discord (`bot/`, `interfaces/discord/`) reste en dépôt pour le vocal e
 | 11 | Fiche fusionnée ; unicité combat ouvert par personnage | Tranché |
 | 12 | Invariant lobby — `CHARACTER_ALREADY_IN_COMBAT` (lot 1) | Tranché |
 | 13 | API seule interface de jeu ; Discord hors évolution | Tranché |
+| 14 | Attaque d'arme **fusionnée** — une requête, pas de pending blob | Tranché (2026-08-07) |
+| 15 | Route `POST …/attack` remplace `attack-roll` (breaking change) | Tranché (2026-08-07) |
+| 16 | Réponse en blocs `attack` / `damage` / `target` | Tranché (2026-08-07) |
+| 17 | `weapon_id` client ; dégâts calculés moteur — pas d'injection | Tranché (2026-08-07) |
 
 ---
 
@@ -343,7 +414,7 @@ L'unicité `(guild_id, channel_id)` pour combats ouverts reste en base ; l'API m
 
 | Dette | État | Résolution cible |
 |---|---|---|
-| **`COMBAT_STATE_UNSUPPORTED` non câblé** | Identifiée | Mapper `CombatStateVersionError` → `409` + code §3.3 sur le **chemin de chargement** d'état combat — pas route par route. Toutes les routes qui chargent un blob (`GET /v1/combats/{id}`, `activate`, `attack-roll`, `close`, fiche fusionnée via `load_combat`) passent par le même point ; le mapping doit vivre **là** (couche application ou helper API partagé), pas dupliqué dans chaque handler. Aujourd'hui : blob incompatible → `500 INTERNAL_ERROR` (indistinguable d'un bug serveur). Aucun blob legacy en circulation à date — non bloquant lot 1. |
+| **`COMBAT_STATE_UNSUPPORTED` non câblé** | Identifiée | Mapper `CombatStateVersionError` → `409` + code §3.3 sur le **chemin de chargement** d'état combat — pas route par route. Routes concernées : `GET /v1/combats/{id}`, `activate`, `attack`, `close`, fiche fusionnée. Aujourd'hui : blob incompatible → `500 INTERNAL_ERROR`. Aucun blob legacy en circulation — non bloquant. |
 
 ---
 
@@ -352,7 +423,8 @@ L'unicité `(guild_id, channel_id)` pour combats ouverts reste en base ; l'API m
 - `docs/adr/ADR-004-modele-combat.md` — conditions, registre
 - `docs/adr/ADR-005-transition-fin-rencontre.md` — sync-on-close
 - `docs/adr/ADR-006-modele-effets-actifs.md` — ActiveEffect
-- `docs/API_LOCAL.md` — API personnage actuelle (à migrer `/v1/` + erreurs)
+- `docs/api/LOT2_CADRAGE_DEGATS.md` — cadrage lot 2 (option A retenue)
+- `docs/API_LOCAL.md` — lancement local
 - `jdr_engine/game/combat_manager.py`
 - `jdr_engine/rules/effects/collect.py`
 - `jdr_engine/application/dto/output_serializers.py`

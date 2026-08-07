@@ -2,12 +2,14 @@
 
 | Attribut | Valeur |
 |---|---|
-| **Statut** | Proposition — en attente d'arbitrage mainteneur |
+| **Statut** | **Accepté** — option A retenue (mainteneur 2026-08-07) |
 | **Date** | 2026-08-07 |
 | **Prérequis** | Lot 1 API livré (`7878e9a`, 886 tests) |
 | **Hors périmètre de ce document** | Implémentation, découpage commits, OpenAPI |
 
 **Question à trancher avant toute ligne de code** : l'API **fusionne-t-elle** jet + dégâts en une action, ou **expose-t-elle** deux endpoints distincts ?
+
+**Décision (2026-08-07)** : **Option A — fusionné.** Route cible `POST /v1/combats/{id}/attack` ; breaking change `attack-roll` retiré. Voir `docs/api/CONTRAT.md` §2.7, §5.4, décisions #14–17.
 
 ---
 
