@@ -612,6 +612,42 @@ class TestApiV1AttackAndMergedSheet(unittest.TestCase):
             sqlite_hp_before,
         )
 
+    def test_attack_viewer_hides_other_target_hp(self) -> None:
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [self.alice.id, self.bob.id],
+                "channel_id": "attack-viewer",
+            },
+        )
+        combat_id = created.json()["combat_id"]
+        activated = self.client.post(f"/v1/combats/{combat_id}/activate").json()
+        active_id = activated["initiative_order"][activated["turn_index"]]
+        target_id = next(
+            cid for cid in activated["combatants"] if cid != active_id
+        )
+        attacker_char = activated["combatants"][active_id]["character_id"]
+        target_char = activated["combatants"][target_id]["character_id"]
+        self.assertNotEqual(attacker_char, target_char)
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/attack",
+            params={"viewer": attacker_char},
+            json={
+                "attacker_id": active_id,
+                "target_id": target_id,
+                "weapon_id": "longsword",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertNotIn("hp_current", payload["target"])
+        self.assertNotIn("hp_max", payload["target"])
+        if payload["damage"] is not None:
+            self.assertNotIn("hp_before", payload["damage"])
+            self.assertNotIn("hp_after", payload["damage"])
+            self.assertIn("damage_dealt", payload["damage"])
+
 
 class TestApiV1AdvanceTurn(unittest.TestCase):
     @classmethod

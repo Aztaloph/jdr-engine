@@ -34,9 +34,9 @@ export interface AttackRollBlock {
 }
 
 export interface DamageBlock {
-  hp_before: number;
-  hp_after: number;
   damage_dealt: number;
+  hp_before?: number;
+  hp_after?: number;
   notation?: string;
   rolls?: number[];
   modifier?: number;
@@ -46,8 +46,8 @@ export interface DamageBlock {
 
 export interface AttackTargetBlock {
   combatant_id: string;
-  hp_current: number;
-  hp_max: number;
+  hp_current?: number;
+  hp_max?: number;
 }
 
 export interface WeaponAttackResult {

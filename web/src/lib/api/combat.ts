@@ -120,15 +120,24 @@ export interface AttackRequest {
 export async function postWeaponAttack(
   combatId: string,
   body: AttackRequest,
+  viewer?: string,
 ): Promise<WeaponAttackResult> {
   const id = combatId.trim();
   if (!id) {
     throw { kind: "network", message: "combat_id requis." } satisfies LoadError;
   }
 
+  const params = new URLSearchParams();
+  const viewerTrimmed = viewer?.trim();
+  if (viewerTrimmed) {
+    params.set("viewer", viewerTrimmed);
+  }
+  const query = params.toString();
+  const url = `/v1/combats/${encodeURIComponent(id)}/attack${query ? `?${query}` : ""}`;
+
   let res: Response;
   try {
-    res = await fetch(`/v1/combats/${encodeURIComponent(id)}/attack`, {
+    res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

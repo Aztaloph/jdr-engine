@@ -124,11 +124,15 @@
     error = null;
     loading = true;
     try {
-      lastAttack = await postWeaponAttack(combatId, {
-        attacker_id: attackerId,
-        target_id: targetId,
-        weapon_id: weaponId,
-      });
+      lastAttack = await postWeaponAttack(
+        combatId,
+        {
+          attacker_id: attackerId,
+          target_id: targetId,
+          weapon_id: weaponId,
+        },
+        viewer,
+      );
     } catch (e) {
       lastAttack = null;
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
@@ -314,14 +318,19 @@
                 {#if lastAttack.damage.notation}
                   ({lastAttack.damage.notation})
                 {/if}
-                — PV {lastAttack.damage.hp_before} → {lastAttack.damage.hp_after}
+                {#if lastAttack.damage.hp_before !== undefined && lastAttack.damage.hp_after !== undefined}
+                  — PV {lastAttack.damage.hp_before} → {lastAttack.damage.hp_after}
+                {/if}
               </dd>
             </div>
           {/if}
           <div>
             <dt>Cible (réponse)</dt>
             <dd>
-              {lastAttack.target.combatant_id} — PV {lastAttack.target.hp_current}/{lastAttack.target.hp_max}
+              {lastAttack.target.combatant_id}
+              {#if lastAttack.target.hp_current !== undefined}
+                — PV {lastAttack.target.hp_current}/{lastAttack.target.hp_max ?? "?"}
+              {/if}
             </dd>
           </div>
         </dl>

@@ -679,6 +679,75 @@ class TestWeaponAttackResultDto(unittest.TestCase):
         self.assertEqual(data["target"]["hp_current"], 22)
         json.dumps(data)
 
+    def test_weapon_attack_result_viewer_hides_other_target_hp(self):
+        d20 = self._d20(18)
+        attack = AttackRollResolution(
+            d20=d20,
+            outcome=resolve_attack_hit(d20, target_ac=15),
+        )
+        damage = DamageResolution(
+            roll=DamageRollResult(
+                dice_notation="1d8+3",
+                rolls=(6,),
+                modifier=3,
+                total=9,
+                critical=False,
+            ),
+            application=DamageApplicationResult(
+                hp_before=22,
+                hp_after=13,
+                damage_dealt=9,
+            ),
+        )
+        alice = Combatant(
+            combatant_id="aaa11111",
+            display_name="Alice",
+            kind="player_character",
+            character_id="char_alice",
+            hp_current=20,
+            hp_max=20,
+            ac=16,
+            is_active=True,
+        )
+        bob = Combatant(
+            combatant_id="bbb22222",
+            display_name="Bob",
+            kind="player_character",
+            character_id="char_bob",
+            hp_current=13,
+            hp_max=22,
+            ac=14,
+            is_active=True,
+        )
+        state = CombatState(
+            schema_version=COMBAT_STATE_VERSION,
+            ruleset_id="dnd5e",
+            round_number=1,
+            turn_index=0,
+            initiative_order=("aaa11111", "bbb22222"),
+            combatants={"aaa11111": alice, "bbb22222": bob},
+            status="active",
+            started_at="2026-08-09T00:00:00+00:00",
+        )
+        data = weapon_attack_result_to_dict(
+            WeaponAttackResult(
+                attack=attack,
+                damage=damage,
+                target_combatant_id="bbb22222",
+                target_hp_current=13,
+                target_hp_max=22,
+            ),
+            state=state,
+            viewer="char_alice",
+        )
+        self.assertEqual(data["target"]["combatant_id"], "bbb22222")
+        self.assertNotIn("hp_current", data["target"])
+        self.assertNotIn("hp_max", data["target"])
+        self.assertNotIn("hp_before", data["damage"])
+        self.assertNotIn("hp_after", data["damage"])
+        self.assertEqual(data["damage"]["damage_dealt"], 9)
+        json.dumps(data)
+
 
 class TestApiEndpoints(unittest.TestCase):
     @classmethod

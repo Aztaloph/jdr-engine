@@ -347,13 +347,33 @@ def attack_roll_resolution_to_dict(
     }
 
 
-def _damage_resolution_to_dict(damage: DamageResolution) -> dict[str, Any]:
+def _viewer_can_see_combatant_private(
+    state: CombatState,
+    combatant_id: str,
+    *,
+    viewer_character_id: str | None,
+) -> bool:
+    """Vue MJ (``viewer_character_id`` absent) ou combattant possédé par le viewer."""
+    if viewer_character_id is None:
+        return True
+    combatant = state.combatants.get(combatant_id)
+    if combatant is None:
+        return False
+    return combatant.character_id == viewer_character_id
+
+
+def _damage_resolution_to_dict(
+    damage: DamageResolution,
+    *,
+    include_hp: bool = True,
+) -> dict[str, Any]:
     """Jet + application de dégâts → bloc `damage` du contrat §2.7."""
     block: dict[str, Any] = {
-        "hp_before": damage.application.hp_before,
-        "hp_after": damage.application.hp_after,
         "damage_dealt": damage.application.damage_dealt,
     }
+    if include_hp:
+        block["hp_before"] = damage.application.hp_before
+        block["hp_after"] = damage.application.hp_after
     if damage.roll is not None:
         block["notation"] = damage.roll.dice_notation
         block["rolls"] = list(damage.roll.rolls)
@@ -363,24 +383,48 @@ def _damage_resolution_to_dict(damage: DamageResolution) -> dict[str, Any]:
     return block
 
 
-def weapon_attack_result_to_dict(result: WeaponAttackResult) -> dict[str, Any]:
+def weapon_attack_result_to_dict(
+    result: WeaponAttackResult,
+    *,
+    state: CombatState | None = None,
+    viewer: str | None = None,
+) -> dict[str, Any]:
     """
     Attaque d'arme fusionnée → dict JSON-sérialisable (contrat §2.7).
 
     Trois blocs : ``attack``, ``damage`` (``null`` si manqué), ``target``.
+
+    ``viewer`` : ``None`` = vue MJ. Sinon ``character_id`` — PV cible masqués
+    si la cible n'appartient pas au viewer (même règle que ``combat_state_to_dict``).
+    ``state`` requis dès que ``viewer`` est renseigné.
     """
+    show_target_hp = True
+    if viewer is not None:
+        if state is None:
+            raise ValueError(
+                "state requis pour filtrer weapon_attack_result_to_dict avec viewer."
+            )
+        show_target_hp = _viewer_can_see_combatant_private(
+            state,
+            result.target_combatant_id,
+            viewer_character_id=viewer,
+        )
+
+    target: dict[str, Any] = {
+        "combatant_id": result.target_combatant_id,
+    }
+    if show_target_hp:
+        target["hp_current"] = result.target_hp_current
+        target["hp_max"] = result.target_hp_max
+
     return {
         "attack": attack_roll_resolution_to_dict(result.attack),
         "damage": (
-            _damage_resolution_to_dict(result.damage)
+            _damage_resolution_to_dict(result.damage, include_hp=show_target_hp)
             if result.damage is not None
             else None
         ),
-        "target": {
-            "combatant_id": result.target_combatant_id,
-            "hp_current": result.target_hp_current,
-            "hp_max": result.target_hp_max,
-        },
+        "target": target,
     }
 
 

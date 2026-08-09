@@ -88,10 +88,7 @@ def register_combat_routes(
         trimmed = viewer.strip()
         return trimmed if trimmed else None
 
-    def _serialize_combat_state(
-        state: CombatState,
-        viewer: str | None = None,
-    ) -> dict:
+    def _validated_viewer(state: CombatState, viewer: str | None) -> str | None:
         normalized = _normalize_viewer(viewer)
         if normalized is not None and viewer_combatant_id(state, normalized) is None:
             details: dict[str, object] = {"character_id": normalized}
@@ -103,6 +100,13 @@ def register_combat_routes(
                 "Le personnage ne participe pas à cette rencontre.",
                 details=details,
             )
+        return normalized
+
+    def _serialize_combat_state(
+        state: CombatState,
+        viewer: str | None = None,
+    ) -> dict:
+        normalized = _validated_viewer(state, viewer)
         return combat_state_to_dict(state, viewer=normalized)
 
     def _combat_response(combat_id: int, viewer: str | None = None) -> dict:
@@ -183,6 +187,7 @@ def register_combat_routes(
         combat_id: int,
         body: AttackRequestBody,
         request: Request,
+        viewer: str | None = None,
     ) -> dict:
         try:
             weapon_profile = resolve_weapon(body.weapon_id)
@@ -203,6 +208,8 @@ def register_combat_routes(
                 "Combat introuvable.",
                 details={"combat_id": combat_id},
             ) from exc
+
+        normalized_viewer = _validated_viewer(state, viewer)
 
         if body.attacker_id not in state.combatants:
             raise ApiError(
@@ -309,7 +316,9 @@ def register_combat_routes(
                 target_combatant_id=body.target_id,
                 target_hp_current=target.hp_current,
                 target_hp_max=target.hp_max,
-            )
+            ),
+            state=state,
+            viewer=normalized_viewer,
         )
 
     @app.post("/v1/combats/{combat_id}/advance-turn")
