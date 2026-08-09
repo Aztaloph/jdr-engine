@@ -168,3 +168,64 @@ export function isLoadError(value: unknown): value is LoadError {
       (value as LoadError).kind === "network")
   );
 }
+
+export async function createCombat(characterIds: string[]): Promise<CombatState> {
+  const ids = characterIds.map((id) => id.trim()).filter(Boolean);
+  if (ids.length === 0) {
+    throw {
+      kind: "network",
+      message: "Au moins un character_id requis.",
+    } satisfies LoadError;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch("/v1/combats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ character_ids: ids }),
+    });
+  } catch (cause) {
+    throw {
+      kind: "network",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : "API injoignable — vérifiez qu'uvicorn tourne sur le port 8000.",
+    } satisfies LoadError;
+  }
+
+  const result = await parseJsonResponse<CombatState>(res);
+  if ("kind" in result) {
+    throw result;
+  }
+  return result;
+}
+
+export async function activateCombat(combatId: string): Promise<CombatState> {
+  const id = combatId.trim();
+  if (!id) {
+    throw { kind: "network", message: "combat_id requis." } satisfies LoadError;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`/v1/combats/${encodeURIComponent(id)}/activate`, {
+      method: "POST",
+    });
+  } catch (cause) {
+    throw {
+      kind: "network",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : "API injoignable — vérifiez qu'uvicorn tourne sur le port 8000.",
+    } satisfies LoadError;
+  }
+
+  const result = await parseJsonResponse<CombatState>(res);
+  if ("kind" in result) {
+    throw result;
+  }
+  return result;
+}

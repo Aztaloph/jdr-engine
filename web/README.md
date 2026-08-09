@@ -13,7 +13,7 @@ combat (`combat_state_to_dict`, `weapon_attack_result_to_dict`).
 
 2. **Node.js** 18+ et npm.
 
-3. Un **combat_id** existant en statut `active` (créer/activer via API ou tests E2E).
+3. Deux **character_id** existants en base (ex. créés via tests E2E ou Discord).
 
 ## Installation
 
@@ -32,13 +32,21 @@ Ouvrir l'URL affichée (souvent `http://localhost:5173`).
 
 Le proxy Vite redirige `/v1/*` vers `http://127.0.0.1:8000` — pas de configuration CORS Python requise.
 
-## Usage
+## Navigation (hash routing)
 
-1. Saisir le **combat_id** (ex. `1`).
-2. Optionnel : **viewer** = `character_id` joueur ; laisser vide pour la vue MJ.
-3. **Recharger** → `GET /v1/combats/{id}?viewer=`.
-4. **Tour suivant** → `POST /v1/combats/{id}/advance-turn`.
-5. **Attaquer** (combat `active`) → `POST /v1/combats/{id}/attack` — sélection `combatant_id` attaquant/cible, arme fermée.
+| Route | Écran |
+|---|---|
+| `#/` ou `#/lobby` | Création / activation d'une rencontre |
+| `#/combat/{id}` | Combat existant (vue MJ par défaut) |
+| `#/combat/{id}?viewer={character_id}` | Combat filtré joueur |
+
+Le **viewer** est porté dans le hash pour des URLs partageables. Modifier le champ viewer sur l'écran combat met à jour l'URL.
+
+## Parcours complet (sans curl)
+
+1. **Lobby** — saisir deux `character_id`, **Créer le combat** → `POST /v1/combats`.
+2. **Activer et jouer** → `POST /v1/combats/{id}/activate`, navigation vers `#/combat/{id}`.
+3. **Combat** — recharger si besoin, **Tour suivant**, **Attaquer** (`POST /v1/combats/{id}/attack`).
 
 « Tour suivant » et « Attaquer » sont désactivés si `status !== "active"`.
 
