@@ -32,7 +32,9 @@ Ouvrir l'URL affichée (souvent `http://localhost:5173`).
 
 Le proxy Vite redirige `/v1/*` vers `http://127.0.0.1:8000` — pas de configuration CORS Python requise.
 
-## Navigation (hash routing)
+## Navigation (svelte-spa-router, hash)
+
+Routage via [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-router) (hash natif). Helpers : `src/lib/navigation.ts`.
 
 | Route | Écran |
 |---|---|

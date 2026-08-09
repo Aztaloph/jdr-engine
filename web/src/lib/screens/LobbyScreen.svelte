@@ -5,7 +5,7 @@
     isLoadError,
   } from "../api/combat";
   import type { CombatState, LoadError } from "../types/combat";
-  import { navigateToCombat } from "../router";
+  import { navigateToCombat } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
 
   let characterRows = $state<string[]>(["", ""]);

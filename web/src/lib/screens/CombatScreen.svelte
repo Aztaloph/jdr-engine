@@ -11,16 +11,20 @@
     type WeaponAttackResult,
     type WeaponId,
   } from "../types/attack";
-  import { navigateToCombat } from "../router";
+  import { router } from "svelte-spa-router";
+  import { navigateToCombat, viewerFromQuerystring } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
 
   let {
-    combatId,
-    initialViewer = "",
+    params = {},
+    onRouteEvent: _onRouteEvent,
   }: {
-    combatId: string;
-    initialViewer?: string;
+    params?: { id?: string | null };
+    onRouteEvent?: (detail: unknown) => void;
   } = $props();
+
+  const combatId = $derived(params.id ?? "");
+  const initialViewer = $derived(viewerFromQuerystring(router.querystring));
 
   let viewer = $state("");
   let combat = $state<CombatState | null>(null);
