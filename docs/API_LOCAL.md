@@ -28,9 +28,10 @@ venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 | POST | `/v1/characters/{id}/short-rest` | `{"dice_to_spend": 2}` | Repos court |
 | POST | `/v1/characters/{id}/long-rest` | — | Repos long |
 | POST | `/v1/combats` | `{"character_ids": [...]}` | Crée un lobby |
-| GET | `/v1/combats/{id}` | — | État rencontre |
+| GET | `/v1/combats/{id}` | `viewer` (query, optionnel) | État rencontre |
 | POST | `/v1/combats/{id}/activate` | — | Active le combat |
-| POST | `/v1/combats/{id}/attack-roll` | `attacker_id`, `target_id`, portée | Jet d'attaque |
+| POST | `/v1/combats/{id}/advance-turn` | `viewer` (query, optionnel) | Avancement de tour |
+| POST | `/v1/combats/{id}/attack` | `attacker_id`, `target_id`, `weapon_id` | Attaque d'arme (jet + dégâts si toucher) |
 | POST | `/v1/combats/{id}/close` | — | Clôture + sync PV |
 
 Exemple :

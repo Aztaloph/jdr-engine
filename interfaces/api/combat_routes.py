@@ -5,9 +5,12 @@ from __future__ import annotations
 from typing import Callable
 
 from fastapi import FastAPI, Request
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
-from interfaces.api.combat_attack import build_weapon_attack_request
+from interfaces.api.combat_attack import (
+    build_weapon_attack_request,
+    build_weapon_damage_notation,
+)
 from interfaces.api.combat_scope import (
     assert_characters_available_for_combat,
     resolve_create_scope,
@@ -15,9 +18,11 @@ from interfaces.api.combat_scope import (
 from interfaces.api.errors import ApiError
 from jdr_engine.application.combat_service import CombatService
 from jdr_engine.application.dto.output_serializers import (
-    attack_roll_resolution_to_dict,
+    WeaponAttackResult,
     combat_state_to_dict,
+    weapon_attack_result_to_dict,
 )
+from jdr_engine.domain.combat.combat_state import CombatState
 from jdr_engine.domain.combat.action_budget import ActionBudgetExhaustedError
 from jdr_engine.game.combat_manager import (
     CombatCharacterNotFoundError,
@@ -34,6 +39,7 @@ from jdr_engine.persistence.combat_repository import (
 from jdr_engine.persistence.sqlite_character_repository import (
     SqliteCharacterRepository,
 )
+from jdr_engine.rules.combat.weapons import UnknownWeaponError, resolve_weapon
 
 
 class CreateCombatRequest(BaseModel):
@@ -42,19 +48,12 @@ class CreateCombatRequest(BaseModel):
     guild_id: str | None = None
 
 
-class AttackRollRequestBody(BaseModel):
+class AttackRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     attacker_id: str = Field(min_length=1)
     target_id: str = Field(min_length=1)
-    melee_weapon: bool = False
-    ranged_weapon: bool = False
-
-    @model_validator(mode="after")
-    def _validate_weapon_context(self) -> AttackRollRequestBody:
-        if self.melee_weapon == self.ranged_weapon:
-            raise ValueError(
-                "Indiquer melee_weapon ou ranged_weapon (exclusifs)."
-            )
-        return self
+    weapon_id: str = Field(min_length=1)
 
 
 def register_combat_routes(
@@ -82,9 +81,22 @@ def register_combat_routes(
                     details={"character_id": character_id},
                 )
 
-    def _combat_response(combat_id: int) -> dict:
+    def _normalize_viewer(viewer: str | None) -> str | None:
+        if viewer is None:
+            return None
+        trimmed = viewer.strip()
+        return trimmed if trimmed else None
+
+    def _serialize_combat_state(
+        state: CombatState,
+        viewer: str | None = None,
+    ) -> dict:
+        normalized = _normalize_viewer(viewer)
+        return combat_state_to_dict(state, viewer=normalized)
+
+    def _combat_response(combat_id: int, viewer: str | None = None) -> dict:
         state = combat_service.load_combat(combat_id)
-        return combat_state_to_dict(state)
+        return _serialize_combat_state(state, viewer=viewer)
 
     @app.post("/v1/combats")
     def create_combat(body: CreateCombatRequest) -> dict:
@@ -118,9 +130,9 @@ def register_combat_routes(
         return combat_state_to_dict(state)
 
     @app.get("/v1/combats/{combat_id}")
-    def get_combat(combat_id: int) -> dict:
+    def get_combat(combat_id: int, viewer: str | None = None) -> dict:
         try:
-            return _combat_response(combat_id)
+            return _combat_response(combat_id, viewer=viewer)
         except CombatNotFoundError as exc:
             raise ApiError(
                 404,
@@ -155,12 +167,22 @@ def register_combat_routes(
             ) from exc
         return combat_state_to_dict(state)
 
-    @app.post("/v1/combats/{combat_id}/attack-roll")
-    def attack_roll(
+    @app.post("/v1/combats/{combat_id}/attack")
+    def attack(
         combat_id: int,
-        body: AttackRollRequestBody,
+        body: AttackRequestBody,
         request: Request,
     ) -> dict:
+        try:
+            weapon_profile = resolve_weapon(body.weapon_id)
+        except UnknownWeaponError as exc:
+            raise ApiError(
+                422,
+                exc.code,
+                str(exc),
+                details={"weapon_id": exc.weapon_id},
+            ) from exc
+
         try:
             state = combat_service.load_combat(combat_id)
         except CombatNotFoundError as exc:
@@ -199,8 +221,7 @@ def register_combat_routes(
         roll_request = build_weapon_attack_request(
             character,
             engine,
-            melee_weapon=body.melee_weapon,
-            ranged_weapon=body.ranged_weapon,
+            weapon_profile,
             locale=locale,
         )
         rng = getattr(request.app.state, "combat_attack_rng", None)
@@ -249,7 +270,58 @@ def register_combat_routes(
                 "CHARACTER_NOT_FOUND",
                 str(exc),
             ) from exc
-        return attack_roll_resolution_to_dict(resolution)
+
+        damage_resolution = None
+        if resolution.outcome.hit:
+            damage_notation = build_weapon_damage_notation(
+                character,
+                engine,
+                weapon_profile,
+                locale=locale,
+            )
+            state, damage_resolution = combat_service.apply_damage(
+                combat_id,
+                body.target_id,
+                damage_notation,
+                critical=resolution.outcome.critical,
+                source_id=body.attacker_id,
+                rng=rng,
+            )
+        else:
+            state = combat_service.load_combat(combat_id)
+
+        target = state.combatants[body.target_id]
+        return weapon_attack_result_to_dict(
+            WeaponAttackResult(
+                attack=resolution,
+                damage=damage_resolution,
+                target_combatant_id=body.target_id,
+                target_hp_current=target.hp_current,
+                target_hp_max=target.hp_max,
+            )
+        )
+
+    @app.post("/v1/combats/{combat_id}/advance-turn")
+    def advance_turn(
+        combat_id: int,
+        viewer: str | None = None,
+    ) -> dict:
+        try:
+            state = combat_service.advance_turn(combat_id)
+        except CombatNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBAT_NOT_FOUND",
+                "Combat introuvable.",
+                details={"combat_id": combat_id},
+            ) from exc
+        except CombatStatusError as exc:
+            raise ApiError(
+                409,
+                "COMBAT_STATUS_INVALID",
+                str(exc),
+            ) from exc
+        return _serialize_combat_state(state, viewer=viewer)
 
     @app.post("/v1/combats/{combat_id}/close")
     def close_combat(combat_id: int) -> dict:

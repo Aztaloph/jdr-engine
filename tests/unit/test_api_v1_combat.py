@@ -294,7 +294,7 @@ class TestApiV1CombatE2E(unittest.TestCase):
                 engine=self.engine,
                 db_path=self.db_path,
                 combat_initiative_rng=InitiativeSequence([15, 8]),
-                combat_attack_rng=RandSequence([14]),
+                combat_attack_rng=RandSequence([14, 5]),
             )
         )
 
@@ -302,13 +302,18 @@ class TestApiV1CombatE2E(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_contract_parcours_7_etapes(self):
-        # 1. Fiche initiale
+        # 1. Fiche initiale — Alice consulte sa fiche ; Bob entre au combat à 12 PV
         sheet_before = self.client.get(f"/v1/characters/{self.alice.id}/sheet")
         self.assertEqual(sheet_before.status_code, 200)
         self.assertNotIn("active_effects", sheet_before.json())
         self.assertEqual(sheet_before.json()["hp_current"], 12)
 
-        # 2. Créer le lobby
+        bob_sheet_before = self.client.get(f"/v1/characters/{self.bob.id}/sheet")
+        self.assertEqual(bob_sheet_before.status_code, 200)
+        bob_hp_before = bob_sheet_before.json()["hp_current"]
+        sqlite_bob_before = copy.deepcopy(self.repo.get_by_id(self.bob.id))
+
+        # 2. Créer le lobby — Alice et Bob s'engagent dans la rencontre
         created = self.client.post(
             "/v1/combats",
             json={
@@ -319,7 +324,7 @@ class TestApiV1CombatE2E(unittest.TestCase):
         self.assertEqual(created.status_code, 200)
         combat_id = created.json()["combat_id"]
 
-        # 3. Activer
+        # 3. Activer — initiative lancée, le tour commence
         activated = self.client.post(f"/v1/combats/{combat_id}/activate")
         self.assertEqual(activated.status_code, 200)
         self.assertEqual(activated.json()["status"], "active")
@@ -332,41 +337,67 @@ class TestApiV1CombatE2E(unittest.TestCase):
             if cid != active_id
         )
 
-        # 4. Jet d'attaque
+        # 4. Attaque — Alice frappe Bob à l'épée longue ; jet et dégâts en une réponse
         attack = self.client.post(
-            f"/v1/combats/{combat_id}/attack-roll",
+            f"/v1/combats/{combat_id}/attack",
             json={
                 "attacker_id": active_id,
                 "target_id": target_id,
-                "melee_weapon": True,
-                "ranged_weapon": False,
+                "weapon_id": "longsword",
             },
         )
         self.assertEqual(attack.status_code, 200)
-        self.assertIn("d20", attack.json())
-        self.assertIn("outcome", attack.json())
+        payload = attack.json()
+        self.assertTrue(payload["attack"]["outcome"]["hit"])
+        damage = payload["damage"]
+        self.assertIsNotNone(damage)
+        damage_total = damage["total"]
+        self.assertEqual(payload["target"]["combatant_id"], target_id)
+        self.assertEqual(damage["hp_before"], bob_hp_before)
+        self.assertEqual(damage["hp_after"], bob_hp_before - damage_total)
+        self.assertEqual(payload["target"]["hp_current"], bob_hp_before - damage_total)
 
-        # 5. État rencontre
+        # 5. État rencontre — l'overlay combat raconte la même chose que la réponse
         combat = self.client.get(f"/v1/combats/{combat_id}")
         self.assertEqual(combat.status_code, 200)
         self.assertEqual(combat.json()["status"], "active")
+        target_in_combat = combat.json()["combatants"][target_id]
+        self.assertEqual(target_in_combat["hp_current"], payload["target"]["hp_current"])
+        self.assertEqual(target_in_combat["hp_current"], bob_hp_before - damage_total)
 
-        # 6. Fiche fusionnée
-        sheet_merged = self.client.get(f"/v1/characters/{self.alice.id}/sheet")
+        # 6. Fiche fusionnée de Bob — PV affichés = PV initiaux − dégâts annoncés
+        sheet_merged = self.client.get(f"/v1/characters/{self.bob.id}/sheet")
         self.assertEqual(sheet_merged.status_code, 200)
         self.assertIn("active_effects", sheet_merged.json())
         self.assertIsInstance(sheet_merged.json()["active_effects"], list)
+        self.assertEqual(
+            sheet_merged.json()["hp_current"],
+            bob_hp_before - damage_total,
+        )
+        # ADR-005 : la fiche SQLite de Bob n'a pas bougé pendant le combat
+        sqlite_bob_mid = self.repo.get_by_id(self.bob.id)
+        assert sqlite_bob_before is not None and sqlite_bob_mid is not None
+        self.assertEqual(sqlite_bob_mid.hp_current, sqlite_bob_before.hp_current)
+        self.assertEqual(sqlite_bob_mid.to_dict(), sqlite_bob_before.to_dict())
 
-        # 7. Clôture
+        # 7. Clôture — fin de rencontre ; sync PV fiche puis retour à la fiche normale
         closed = self.client.post(f"/v1/combats/{combat_id}/close")
         self.assertEqual(closed.status_code, 200)
         self.assertEqual(closed.json()["status"], "ended")
 
-        sheet_after = self.client.get(f"/v1/characters/{self.alice.id}/sheet")
+        sheet_after = self.client.get(f"/v1/characters/{self.bob.id}/sheet")
         self.assertNotIn("active_effects", sheet_after.json())
+        self.assertEqual(
+            sheet_after.json()["hp_current"],
+            bob_hp_before - damage_total,
+        )
+        self.assertEqual(
+            self.repo.get_by_id(self.bob.id).hp_current,
+            bob_hp_before - damage_total,
+        )
 
 
-class TestApiV1AttackRollAndMergedSheet(unittest.TestCase):
+class TestApiV1AttackAndMergedSheet(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.engine = _engine()
@@ -389,7 +420,7 @@ class TestApiV1AttackRollAndMergedSheet(unittest.TestCase):
                 engine=self.engine,
                 db_path=self.db_path,
                 combat_initiative_rng=InitiativeSequence([18, 6]),
-                combat_attack_rng=RandSequence([12]),
+                combat_attack_rng=RandSequence([12, 4]),
             )
         )
 
@@ -409,16 +440,112 @@ class TestApiV1AttackRollAndMergedSheet(unittest.TestCase):
         attacker_id, target_id = list(created.json()["combatants"])
 
         response = self.client.post(
-            f"/v1/combats/{combat_id}/attack-roll",
+            f"/v1/combats/{combat_id}/attack",
             json={
                 "attacker_id": attacker_id,
                 "target_id": target_id,
-                "melee_weapon": True,
-                "ranged_weapon": False,
+                "weapon_id": "longsword",
             },
         )
         self.assertEqual(response.status_code, 409)
         self.assertEqual(_api_error(response)["code"], "COMBAT_STATUS_INVALID")
+
+    def test_attack_legacy_body_fields_rejected(self):
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [self.alice.id, self.bob.id],
+                "channel_id": "legacy-body",
+            },
+        )
+        combat_id = created.json()["combat_id"]
+        self.client.post(f"/v1/combats/{combat_id}/activate")
+        activated = self.client.get(f"/v1/combats/{combat_id}").json()
+        active_id = activated["initiative_order"][activated["turn_index"]]
+        target_id = next(
+            cid for cid in activated["combatants"] if cid != active_id
+        )
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/attack",
+            json={
+                "attacker_id": active_id,
+                "target_id": target_id,
+                "weapon_id": "longsword",
+                "melee_weapon": True,
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(_api_error(response)["code"], "VALIDATION_ERROR")
+
+    def test_attack_unknown_weapon_returns_weapon_unknown_code(self):
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [self.alice.id, self.bob.id],
+                "channel_id": "unknown-weapon",
+            },
+        )
+        combat_id = created.json()["combat_id"]
+        self.client.post(f"/v1/combats/{combat_id}/activate")
+        activated = self.client.get(f"/v1/combats/{combat_id}").json()
+        active_id = activated["initiative_order"][activated["turn_index"]]
+        target_id = next(
+            cid for cid in activated["combatants"] if cid != active_id
+        )
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/attack",
+            json={
+                "attacker_id": active_id,
+                "target_id": target_id,
+                "weapon_id": "greatsword",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        err = _api_error(response)
+        self.assertEqual(err["code"], "WEAPON_UNKNOWN")
+        self.assertEqual(err["details"]["weapon_id"], "greatsword")
+
+    def test_attack_miss_damage_null(self):
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [self.alice.id, self.bob.id],
+                "channel_id": "attack-miss",
+            },
+        )
+        combat_id = created.json()["combat_id"]
+        self.client.post(f"/v1/combats/{combat_id}/activate")
+        activated = self.client.get(f"/v1/combats/{combat_id}").json()
+        active_id = activated["initiative_order"][activated["turn_index"]]
+        target_id = next(
+            cid for cid in activated["combatants"] if cid != active_id
+        )
+        target_hp_before = activated["combatants"][target_id]["hp_current"]
+
+        client = TestClient(
+            create_app(
+                engine=self.engine,
+                db_path=self.db_path,
+                combat_initiative_rng=InitiativeSequence([18, 6]),
+                combat_attack_rng=RandSequence([1]),
+            )
+        )
+        response = client.post(
+            f"/v1/combats/{combat_id}/attack",
+            json={
+                "attacker_id": active_id,
+                "target_id": target_id,
+                "weapon_id": "longsword",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["attack"]["outcome"]["hit"])
+        self.assertIsNone(payload["damage"])
+        self.assertEqual(payload["target"]["hp_current"], target_hp_before)
+        client.close()
 
     def test_attack_does_not_persist_character_sheet(self):
         created = self.client.post(
@@ -439,15 +566,15 @@ class TestApiV1AttackRollAndMergedSheet(unittest.TestCase):
 
         before = copy.deepcopy(self.repo.get_by_id(self.alice.id))
         response = self.client.post(
-            f"/v1/combats/{combat_id}/attack-roll",
+            f"/v1/combats/{combat_id}/attack",
             json={
                 "attacker_id": active_id,
                 "target_id": target_id,
-                "melee_weapon": True,
-                "ranged_weapon": False,
+                "weapon_id": "longsword",
             },
         )
         self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.json()["damage"])
         after = self.repo.get_by_id(self.alice.id)
         assert before is not None and after is not None
         self.assertEqual(after.hp_current, before.hp_current)
@@ -484,6 +611,183 @@ class TestApiV1AttackRollAndMergedSheet(unittest.TestCase):
             self.repo.get_by_id(self.bob.id).hp_current,
             sqlite_hp_before,
         )
+
+
+class TestApiV1AdvanceTurn(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = _engine()
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = init_database(Path(self._tmpdir.name) / "bot.db")
+        self.repo = SqliteCharacterRepository(self.db_path)
+        self.alice = _fighter(char_id="adv_alice", name="Alice", dex=16)
+        self.bob = _fighter(char_id="adv_bob", name="Bob", dex=10)
+        for char in (self.alice, self.bob):
+            self.repo.save(char)
+        self.client = TestClient(
+            create_app(
+                engine=self.engine,
+                db_path=self.db_path,
+                combat_initiative_rng=InitiativeSequence([18, 6]),
+            )
+        )
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _active_combat_id(self) -> int:
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [self.alice.id, self.bob.id],
+                "channel_id": "advance-turn",
+            },
+        )
+        combat_id = created.json()["combat_id"]
+        self.client.post(f"/v1/combats/{combat_id}/activate")
+        return combat_id
+
+    def test_advance_turn_advances_and_returns_state(self) -> None:
+        combat_id = self._active_combat_id()
+        before = self.client.get(f"/v1/combats/{combat_id}").json()
+        response = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+        self.assertEqual(response.status_code, 200)
+        after = response.json()
+        self.assertNotEqual(after["turn_index"], before["turn_index"])
+
+    def test_advance_turn_viewer_player_hides_other_hp(self) -> None:
+        combat_id = self._active_combat_id()
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/advance-turn",
+            params={"viewer": self.alice.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        combatants = response.json()["combatants"]
+        alice_cid = next(
+            cid
+            for cid, c in combatants.items()
+            if c["character_id"] == self.alice.id
+        )
+        bob_cid = next(
+            cid
+            for cid, c in combatants.items()
+            if c["character_id"] == self.bob.id
+        )
+        self.assertIn("hp_current", combatants[alice_cid])
+        self.assertNotIn("hp_current", combatants[bob_cid])
+
+    def test_advance_turn_preparing_combat_rejected(self) -> None:
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [self.alice.id, self.bob.id],
+                "channel_id": "preparing-adv",
+            },
+        )
+        combat_id = created.json()["combat_id"]
+        response = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(_api_error(response)["code"], "COMBAT_STATUS_INVALID")
+
+    def test_advance_turn_unknown_combat_404(self) -> None:
+        response = self.client.post("/v1/combats/99999/advance-turn")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(_api_error(response)["code"], "COMBAT_NOT_FOUND")
+
+
+class TestApiV1CombatRead(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = _engine()
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = init_database(Path(self._tmpdir.name) / "bot.db")
+        self.repo = SqliteCharacterRepository(self.db_path)
+        self.alice = _fighter(char_id="read_alice", name="Alice", dex=16)
+        self.bob = _fighter(char_id="read_bob", name="Bob", dex=10)
+        for char in (self.alice, self.bob):
+            self.repo.save(char)
+        self.client = TestClient(
+            create_app(
+                engine=self.engine,
+                db_path=self.db_path,
+                combat_initiative_rng=InitiativeSequence([18, 6]),
+            )
+        )
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _active_combat_id(self) -> int:
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [self.alice.id, self.bob.id],
+                "channel_id": "combat-read",
+            },
+        )
+        combat_id = created.json()["combat_id"]
+        self.client.post(f"/v1/combats/{combat_id}/activate")
+        return combat_id
+
+    def _combatant_ids_by_character(
+        self,
+        combatants: dict,
+        character_id: str,
+    ) -> str:
+        return next(
+            cid
+            for cid, c in combatants.items()
+            if c["character_id"] == character_id
+        )
+
+    def test_get_combat_without_viewer_shows_all_hp(self) -> None:
+        combat_id = self._active_combat_id()
+        response = self.client.get(f"/v1/combats/{combat_id}")
+        self.assertEqual(response.status_code, 200)
+        combatants = response.json()["combatants"]
+        for cid in combatants:
+            self.assertIn("hp_current", combatants[cid])
+
+    def test_get_combat_with_viewer_hides_other_hp(self) -> None:
+        combat_id = self._active_combat_id()
+        response = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.alice.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        combatants = response.json()["combatants"]
+        alice_cid = self._combatant_ids_by_character(combatants, self.alice.id)
+        bob_cid = self._combatant_ids_by_character(combatants, self.bob.id)
+        self.assertIn("hp_current", combatants[alice_cid])
+        self.assertNotIn("hp_current", combatants[bob_cid])
+
+    def test_get_and_advance_turn_viewer_parity(self) -> None:
+        combat_id = self._active_combat_id()
+        get_view = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.alice.id},
+        ).json()
+        adv_view = self.client.post(
+            f"/v1/combats/{combat_id}/advance-turn",
+            params={"viewer": self.alice.id},
+        ).json()
+        alice_cid = self._combatant_ids_by_character(
+            get_view["combatants"],
+            self.alice.id,
+        )
+        bob_cid = self._combatant_ids_by_character(
+            get_view["combatants"],
+            self.bob.id,
+        )
+        for label, payload in (("GET", get_view), ("advance-turn", adv_view)):
+            with self.subTest(route=label):
+                combatants = payload["combatants"]
+                self.assertIn("hp_current", combatants[alice_cid])
+                self.assertNotIn("hp_current", combatants[bob_cid])
 
 
 if __name__ == "__main__":
