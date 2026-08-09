@@ -31,7 +31,7 @@ venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 | GET | `/v1/combats/{id}` | `viewer` (query, optionnel) | État rencontre |
 | POST | `/v1/combats/{id}/activate` | — | Active le combat |
 | POST | `/v1/combats/{id}/advance-turn` | `viewer` (query, optionnel) | Avancement de tour |
-| POST | `/v1/combats/{id}/attack` | `attacker_id`, `target_id`, `weapon_id` | Attaque d'arme (jet + dégâts si toucher) |
+| POST | `/v1/combats/{id}/attack` | `attacker_id`, `target_id`, `weapon_id` ; `viewer` (query, optionnel) | Attaque d'arme (jet + dégâts si toucher) |
 | POST | `/v1/combats/{id}/close` | — | Clôture + sync PV |
 
 Exemple :

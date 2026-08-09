@@ -9,7 +9,7 @@
 
 **Critère de tri** : une décision entre ici si la changer plus tard **casse un client existant** ou **impose une migration**. Tout le reste sera découvert à l'implémentation et est listé comme hors contrat.
 
-**État de référence moteur** : 886 tests ; lot 1 API livré (`7878e9a`) ; combat persistant (initiative, tours, attaques, sorts, conditions, concentration) ; registre d'effets unifié (ADR-006).
+**État de référence moteur** : 923 tests ; lot 1 API livré (`7878e9a`) ; attaque fusionnée et client web lot 2 exercés ; combat persistant (initiative, tours, attaques, sorts, conditions, concentration) ; registre d'effets unifié (ADR-006).
 
 **Préfixe URL** : toutes les routes contractuelles vivent sous **`/v1/`**.
 
@@ -225,9 +225,9 @@ Lot **cohérence lecture combat** : aligner GET et advance-turn, exposer le tour
 |---|---|
 | **Sémantique** | `character_id` du joueur dont on simule la vue |
 | **Vue MJ** | Paramètre **absent**, `null`, ou **chaîne vide** (y compris espaces seuls après trim) → intégralité des champs |
-| **Routes** | `GET /v1/combats/{combat_id}` et `POST /v1/combats/{combat_id}/advance-turn` uniquement (lot 2026-08-09) |
+| **Routes** | `GET` et `POST advance-turn` et `POST attack` — query `viewer` optionnel (`character_id`) |
 | **Erreur** | `404 VIEWER_NOT_IN_COMBAT` si `viewer` non vide et `character_id` absent de la rencontre |
-| **Hors périmètre lot** | `viewer` sur `create`, `activate`, `close`, `attack` — ces réponses restent vue MJ ou DTO action sans filtrage |
+| **Hors périmètre viewer** | `create`, `activate`, `close` — réponses vue MJ intégrale (actions MJ) |
 
 #### Trois politiques de visibilité coexistantes
 
@@ -235,7 +235,7 @@ Lot **cohérence lecture combat** : aligner GET et advance-turn, exposer le tour
 |---|---|---|
 | **Agrégat combat** | `viewer` query (`character_id`) ou MJ | PV, CA, budget, concentration : soi ou MJ ; autres combattants : champs publics seulement |
 | **Fiche personnage** | `character_id` dans l'URL (`GET …/sheet`) | Overlay du **personnage de la route** uniquement ; effets ciblant son `combatant_id` |
-| **Résultat d'attaque** | — (`POST …/attack`) | Bloc `target` : `hp_current` / `hp_max` **toujours** exposés post-action — pas de filtrage `viewer` |
+| **Résultat d'attaque** | `viewer` query (`character_id`) ou MJ | Bloc `attack` (jet) toujours visible ; `target` / `damage` : PV (`hp_*`) **absents** si la cible n'est pas « soi » ni vue MJ — même règle d'omission que l'agrégat combat |
 
 #### Pont `character_id` ↔ `combatant_id`
 
@@ -309,9 +309,9 @@ Filtrage `viewer` joueur : effets dont `target_id` = combattant du viewer ; MJ :
 
 Les transitions invalides lèvent `CombatStatusError` → `409 COMBAT_STATUS_INVALID` (message français variable).
 
-#### Asymétrie POST mutate (documentée, non corrigée lot 2026-08-09)
+#### Asymétrie POST mutate (documentée)
 
-`POST create`, `activate`, `close` renvoient `combat_state_to_dict` **sans** `viewer` — vue MJ intégrale. Seuls `GET` et `advance-turn` filtrent. Un client qui enchaîne mutation puis relecture filtrée doit préférer `GET ?viewer=` après mutation.
+`POST create`, `activate`, `close` renvoient `combat_state_to_dict` **sans** `viewer` — vue MJ intégrale. Actions MJ sans conséquence visibilité joueur. **`POST attack`** et **`GET`** / **`advance-turn`** partagent la politique `viewer` (2026-08-09). Un client qui enchaîne mutation MJ puis relecture filtrée doit préférer `GET ?viewer=` après mutation.
 
 ---
 
@@ -410,7 +410,7 @@ snake_case ; vocabulaire SRD ; modes de jet `normal` / `avantage` / `desavantage
 | Lire rencontre | `GET /v1/combats/{combat_id}` | Query `viewer` optionnel (`character_id`) — §2.8 |
 | Avancer le tour | `POST /v1/combats/{combat_id}/advance-turn` | Query `viewer` optionnel — §2.8 |
 | Activer | `POST /v1/combats/{combat_id}/activate` | — |
-| Attaque d'arme (fusionnée) | `POST /v1/combats/{combat_id}/attack` | §2.7 |
+| Attaque d'arme (fusionnée) | `POST /v1/combats/{combat_id}/attack` | §2.7 ; query `viewer` optionnel — §2.8 |
 | Clore | `POST /v1/combats/{combat_id}/close` | — |
 
 ### 5.3 Lot 1 — livré
@@ -418,15 +418,15 @@ snake_case ; vocabulaire SRD ; modes de jet `normal` / `avantage` / `desavantage
 - Format erreur, préfixe `/v1/`, cycle de vie combat, invariant lobby, fiche fusionnée lecture, `attack-roll` jet seul (**remplacé lot 2**).
 - **Tests** : libération personnages après `close` ; parcours E2E sans dégâts appliqués.
 
-### 5.4 Lot 2 — attaque d'arme fusionnée (à implémenter)
+### 5.4 Lot 2 — attaque d'arme fusionnée (livré)
 
-- Remplacement `attack-roll` → `attack` (breaking change §2.7).
-- DTO `weapon_attack_result_to_dict` (ou équivalent) — blocs `attack`, `damage`, `target`.
-- Résolution `weapon_id` → notation dégâts moteur.
-- Parcours §5.1 mis à jour (étape 4 + PV overlay post-attaque étape 6).
-- Cadrage : `docs/api/LOT2_CADRAGE_DEGATS.md` (option A retenue).
+- Route **`POST /v1/combats/{id}/attack`** — remplace `attack-roll` (breaking change §2.7).
+- DTO `weapon_attack_result_to_dict` — blocs `attack`, `damage`, `target`.
+- Résolution `weapon_id` → notation dégâts moteur (liste fermée transitoire §10.5).
+- Parcours §5.1 : étape 4 + PV overlay post-attaque étape 6.
+- **Client web lot 2** (2026-08-09) : panneau attaque ; filtrage `viewer` sur `target`/`damage` aligné GET combat.
 
-**Hors lot 2** : sorts combat, conditions API, `apply-damage` générique exposé, avancement de tour, Extra Attack, état pending, `Idempotency-Key`.
+**Hors lot 2 API** : sorts combat, conditions API, `apply-damage` générique exposé, Extra Attack, état pending, `Idempotency-Key`. *(Avancement de tour : lot 0 API + web.)*
 
 ---
 
@@ -503,7 +503,7 @@ Le code Discord (`bot/`, `interfaces/discord/`) reste en dépôt pour le vocal e
 |---|---|---|
 | Un personnage ≤ un combat **ouvert** à la fois | **Oui** — `CHARACTER_ALREADY_IN_COMBAT` à l'entrée (couche API, sans modifier le moteur) | — |
 | Tant qu'il est dans un lobby, pas d'interaction avec un autre combat | Implicite via unicité | — |
-| Rejoindre un combat **déjà `active`** | Non | `POST /v1/combats/{id}/combatants` (moteur : extension `add_combatant`) |
+| Rejoindre un combat **déjà `active`** | Moteur **oui** (`add_combatant`) ; route HTTP **non** | `POST /v1/combats/{id}/combatants` (à exposer) |
 | Sortir par **fuite** (action de jeu, jet possible) | Non | Chantier gameplay |
 
 **Lot 1** : vérification API — requête sur les combats ouverts contenant le `character_id` avant `create_combat` / `add_combatant`. **Ne pas modifier** `CombatManager` pour cet invariant.
