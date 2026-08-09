@@ -49,6 +49,7 @@ __all__ = [
     "WeaponAttackResult",
     "character_sheet_to_dict",
     "combat_state_to_dict",
+    "viewer_combatant_id",
     "attack_roll_resolution_to_dict",
     "weapon_attack_result_to_dict",
     "spell_cast_result_to_dict",

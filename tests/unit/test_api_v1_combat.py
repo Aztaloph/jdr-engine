@@ -789,6 +789,37 @@ class TestApiV1CombatRead(unittest.TestCase):
                 self.assertIn("hp_current", combatants[alice_cid])
                 self.assertNotIn("hp_current", combatants[bob_cid])
 
+    def test_get_empty_viewer_is_dm_view(self) -> None:
+        combat_id = self._active_combat_id()
+        response = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": "   "},
+        )
+        self.assertEqual(response.status_code, 200)
+        combatants = response.json()["combatants"]
+        for cid in combatants:
+            self.assertIn("hp_current", combatants[cid])
+
+    def test_get_unknown_viewer_404(self) -> None:
+        combat_id = self._active_combat_id()
+        response = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": "nobody_here"},
+        )
+        self.assertEqual(response.status_code, 404)
+        err = _api_error(response)
+        self.assertEqual(err["code"], "VIEWER_NOT_IN_COMBAT")
+        self.assertEqual(err["details"]["character_id"], "nobody_here")
+
+    def test_advance_turn_unknown_viewer_404(self) -> None:
+        combat_id = self._active_combat_id()
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/advance-turn",
+            params={"viewer": "nobody_here"},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(_api_error(response)["code"], "VIEWER_NOT_IN_COMBAT")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

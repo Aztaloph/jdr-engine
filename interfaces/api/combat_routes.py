@@ -20,6 +20,7 @@ from jdr_engine.application.combat_service import CombatService
 from jdr_engine.application.dto.output_serializers import (
     WeaponAttackResult,
     combat_state_to_dict,
+    viewer_combatant_id,
     weapon_attack_result_to_dict,
 )
 from jdr_engine.domain.combat.combat_state import CombatState
@@ -92,6 +93,16 @@ def register_combat_routes(
         viewer: str | None = None,
     ) -> dict:
         normalized = _normalize_viewer(viewer)
+        if normalized is not None and viewer_combatant_id(state, normalized) is None:
+            details: dict[str, object] = {"character_id": normalized}
+            if state.combat_id is not None:
+                details["combat_id"] = int(state.combat_id)
+            raise ApiError(
+                404,
+                "VIEWER_NOT_IN_COMBAT",
+                "Le personnage ne participe pas à cette rencontre.",
+                details=details,
+            )
         return combat_state_to_dict(state, viewer=normalized)
 
     def _combat_response(combat_id: int, viewer: str | None = None) -> dict:
