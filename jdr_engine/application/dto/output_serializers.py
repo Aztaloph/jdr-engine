@@ -27,6 +27,7 @@ compteurs relèvent de la phase combat et mériteront une conception dédiée.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from jdr_engine.dice.d20 import D20RollRequest, D20RollResult
@@ -38,20 +39,33 @@ from jdr_engine.domain.combat.action_budget import ActionBudget
 from jdr_engine.domain.combat.active_effect import ActiveEffect
 from jdr_engine.domain.combat.combat_state import CombatState
 from jdr_engine.domain.combat.combatant import Combatant
-from jdr_engine.game.combat_manager import AttackRollResolution
+from jdr_engine.game.combat_manager import AttackRollResolution, DamageResolution
 from jdr_engine.rules.combat.attack_roll import AttackHitOutcome
 from jdr_engine.rules.rest.long_rest import LongRestResult
 from jdr_engine.rules.rest.short_rest import HitDieRoll, ShortRestResult
 from jdr_engine.rules.spellcasting.cast import SpellAttackRoll, SpellCastResult
 
 __all__ = [
+    "WeaponAttackResult",
     "character_sheet_to_dict",
     "combat_state_to_dict",
     "attack_roll_resolution_to_dict",
+    "weapon_attack_result_to_dict",
     "spell_cast_result_to_dict",
     "short_rest_result_to_dict",
     "long_rest_result_to_dict",
 ]
+
+
+@dataclass(frozen=True)
+class WeaponAttackResult:
+    """Résultat agrégé d'une attaque d'arme — jet, dégâts optionnels, cible post-action."""
+
+    attack: AttackRollResolution
+    damage: DamageResolution | None
+    target_combatant_id: str
+    target_hp_current: int
+    target_hp_max: int
 
 
 def _slots_to_dict(slots: dict[int, int]) -> dict[str, int]:
@@ -181,35 +195,91 @@ def _active_effect_to_dict(effect: ActiveEffect) -> dict[str, Any]:
     return payload
 
 
-def _combatant_to_dict(combatant: Combatant) -> dict[str, Any]:
+def _combatant_to_dict(
+    combatant: Combatant,
+    *,
+    viewer: str | None = None,
+    viewer_character_id: str | None = None,
+) -> dict[str, Any]:
     """
     Combattant → dict JSON-sérialisable.
 
-    Données persistées uniquement — pas de dérivé « peut agir » ni agrégat UI.
+    ``viewer`` = ``None`` : vue MJ (tout). Sinon ``viewer`` est un ``character_id``
+    joueur — détail complet pour soi, champs publics seulement pour les autres.
     """
+    is_own = (
+        viewer is not None
+        and viewer_character_id is not None
+        and combatant.character_id == viewer_character_id
+    )
+    is_dm_view = viewer is None
+
     payload: dict[str, Any] = {
         "combatant_id": combatant.combatant_id,
         "display_name": combatant.display_name,
         "kind": combatant.kind,
         "character_id": combatant.character_id,
-        "hp_current": combatant.hp_current,
-        "hp_max": combatant.hp_max,
-        "ac": combatant.ac,
         "is_active": combatant.is_active,
     }
     if combatant.initiative_total is not None:
         payload["initiative_total"] = combatant.initiative_total
-    if combatant.concentration_spell_id is not None:
-        payload["concentration_spell_id"] = combatant.concentration_spell_id
-        payload["concentration_spell_name"] = combatant.concentration_spell_name
-    if combatant.action_budget is not None:
-        payload["action_budget"] = _action_budget_to_dict(combatant.action_budget)
+
+    if is_dm_view or is_own:
+        payload["hp_current"] = combatant.hp_current
+        payload["hp_max"] = combatant.hp_max
+        payload["ac"] = combatant.ac
+        if combatant.concentration_spell_id is not None:
+            payload["concentration_spell_id"] = combatant.concentration_spell_id
+            payload["concentration_spell_name"] = combatant.concentration_spell_name
+        if combatant.action_budget is not None:
+            payload["action_budget"] = _action_budget_to_dict(combatant.action_budget)
+
     return payload
 
 
-def combat_state_to_dict(state: CombatState) -> dict[str, Any]:
+def _viewer_combatant_id(
+    state: CombatState,
+    viewer_character_id: str,
+) -> str | None:
+    for combatant in state.combatants.values():
+        if combatant.character_id == viewer_character_id:
+            return combatant.combatant_id
+    return None
+
+
+def viewer_combatant_id(
+    state: CombatState,
+    viewer_character_id: str,
+) -> str | None:
+    """Résout un ``character_id`` viewer vers le ``combatant_id`` de la rencontre."""
+    return _viewer_combatant_id(state, viewer_character_id)
+
+
+def _current_combatant_id(state: CombatState) -> str | None:
+    """
+    Identifiant du slot de tour courant dans l'ordre figé.
+
+    ``None`` si ``initiative_order`` est vide ou si ``turn_index`` est hors bornes.
+    Ne saute pas les combattants inactifs — cohérent avec ``TurnEnded`` moteur.
+    """
+    order = state.initiative_order
+    if not order:
+        return None
+    idx = state.turn_index
+    if idx < 0 or idx >= len(order):
+        return None
+    return order[idx]
+
+
+def combat_state_to_dict(
+    state: CombatState,
+    *,
+    viewer: str | None = None,
+) -> dict[str, Any]:
     """
     État de rencontre → dict JSON-sérialisable (ressource API combat).
+
+    ``viewer`` : ``None`` = vue MJ (intégralité) ; sinon ``character_id`` du joueur.
 
     Exclus : ``schema_version`` (version blob interne), ``guild_id`` /
     ``channel_id`` (projection persistence — hors vocabulaire client).
@@ -217,20 +287,41 @@ def combat_state_to_dict(state: CombatState) -> dict[str, Any]:
     combat_id: int | None = None
     if state.combat_id is not None:
         combat_id = int(state.combat_id)
+
+    viewer_combatant_id: str | None = None
+    if viewer is not None:
+        viewer_combatant_id = _viewer_combatant_id(state, viewer)
+
+    if viewer is None:
+        active_effects = [
+            _active_effect_to_dict(effect) for effect in state.active_effects
+        ]
+    elif viewer_combatant_id is None:
+        active_effects = []
+    else:
+        active_effects = [
+            _active_effect_to_dict(effect)
+            for effect in state.active_effects
+            if effect.target_id == viewer_combatant_id
+        ]
+
     return {
         "combat_id": combat_id,
         "status": state.status,
         "ruleset_id": state.ruleset_id,
         "round_number": state.round_number,
         "turn_index": state.turn_index,
+        "current_combatant_id": _current_combatant_id(state),
         "initiative_order": list(state.initiative_order),
         "combatants": {
-            combatant_id: _combatant_to_dict(combatant)
+            combatant_id: _combatant_to_dict(
+                combatant,
+                viewer=viewer,
+                viewer_character_id=viewer,
+            )
             for combatant_id, combatant in state.combatants.items()
         },
-        "active_effects": [
-            _active_effect_to_dict(effect) for effect in state.active_effects
-        ],
+        "active_effects": active_effects,
         "started_at": state.started_at,
         "ended_at": state.ended_at,
     }
@@ -252,6 +343,43 @@ def attack_roll_resolution_to_dict(
     return {
         "d20": _d20_result_to_dict(resolution.d20),
         "outcome": _attack_hit_outcome_to_dict(resolution.outcome),
+    }
+
+
+def _damage_resolution_to_dict(damage: DamageResolution) -> dict[str, Any]:
+    """Jet + application de dégâts → bloc `damage` du contrat §2.7."""
+    block: dict[str, Any] = {
+        "hp_before": damage.application.hp_before,
+        "hp_after": damage.application.hp_after,
+        "damage_dealt": damage.application.damage_dealt,
+    }
+    if damage.roll is not None:
+        block["notation"] = damage.roll.dice_notation
+        block["rolls"] = list(damage.roll.rolls)
+        block["modifier"] = damage.roll.modifier
+        block["total"] = damage.roll.total
+        block["critical"] = damage.roll.critical
+    return block
+
+
+def weapon_attack_result_to_dict(result: WeaponAttackResult) -> dict[str, Any]:
+    """
+    Attaque d'arme fusionnée → dict JSON-sérialisable (contrat §2.7).
+
+    Trois blocs : ``attack``, ``damage`` (``null`` si manqué), ``target``.
+    """
+    return {
+        "attack": attack_roll_resolution_to_dict(result.attack),
+        "damage": (
+            _damage_resolution_to_dict(result.damage)
+            if result.damage is not None
+            else None
+        ),
+        "target": {
+            "combatant_id": result.target_combatant_id,
+            "hp_current": result.target_hp_current,
+            "hp_max": result.target_hp_max,
+        },
     }
 
 

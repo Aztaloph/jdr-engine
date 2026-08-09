@@ -10,20 +10,23 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from jdr_engine.application.dto.output_serializers import (
+    WeaponAttackResult,
     attack_roll_resolution_to_dict,
     character_sheet_to_dict,
     combat_state_to_dict,
     long_rest_result_to_dict,
     short_rest_result_to_dict,
     spell_cast_result_to_dict,
+    weapon_attack_result_to_dict,
 )
 from jdr_engine.dice.d20 import D20RollRequest, D20RollResult
 from jdr_engine.domain.combat.action_budget import ActionBudget
 from jdr_engine.domain.combat.active_effect import ActiveEffect
 from jdr_engine.domain.combat.combat_state import COMBAT_STATE_VERSION, CombatState
 from jdr_engine.domain.combat.combatant import Combatant
-from jdr_engine.game.combat_manager import AttackRollResolution
+from jdr_engine.game.combat_manager import AttackRollResolution, DamageResolution
 from jdr_engine.rules.combat.attack_roll import AttackHitOutcome, resolve_attack_hit
+from jdr_engine.rules.combat.damage import DamageApplicationResult, DamageRollResult
 from jdr_engine.domain.character.ability_scores import AbilityScores
 from jdr_engine.domain.character.character import Character
 from jdr_engine.persistence.database import init_database
@@ -395,6 +398,7 @@ class TestCombatStateDto(unittest.TestCase):
         self.assertEqual(data["status"], "active")
         self.assertEqual(data["round_number"], 2)
         self.assertEqual(data["turn_index"], 1)
+        self.assertEqual(data["current_combatant_id"], "def67890")
         self.assertEqual(data["initiative_order"], ["abc12345", "def67890"])
         self.assertNotIn("schema_version", data)
         self.assertNotIn("guild_id", data)
@@ -474,6 +478,71 @@ class TestCombatStateDto(unittest.TestCase):
         self.assertEqual(bob["concentration_spell_name"], "Malédiction")
         self.assertNotIn("action_budget", bob)
         self.assertNotIn("can_act", bob)
+        json.dumps(data)
+
+    def test_combat_state_dto_current_combatant_id_preparing_null(self) -> None:
+        state = CombatState(
+            schema_version=COMBAT_STATE_VERSION,
+            ruleset_id="dnd5e",
+            round_number=0,
+            turn_index=0,
+            initiative_order=(),
+            combatants={},
+            status="preparing",
+            started_at=None,
+        )
+        data = combat_state_to_dict(state)
+        self.assertIsNone(data["current_combatant_id"])
+
+    def test_combat_state_dto_current_combatant_id_out_of_bounds_null(self) -> None:
+        combatant = Combatant(
+            combatant_id="abc12345",
+            display_name="Alice",
+            kind="player_character",
+            character_id="char001",
+            hp_current=18,
+            hp_max=20,
+            ac=15,
+            is_active=True,
+            initiative_total=17,
+        )
+        state = CombatState(
+            schema_version=COMBAT_STATE_VERSION,
+            ruleset_id="dnd5e",
+            round_number=1,
+            turn_index=5,
+            initiative_order=("abc12345",),
+            combatants={"abc12345": combatant},
+            status="active",
+            started_at="2026-08-07T12:00:00+00:00",
+        )
+        data = combat_state_to_dict(state)
+        self.assertIsNone(data["current_combatant_id"])
+
+    def test_combat_state_dto_current_combatant_id_includes_inactive(self) -> None:
+        combatant = Combatant(
+            combatant_id="xyz98765",
+            display_name="Bob",
+            kind="player_character",
+            character_id="char002",
+            hp_current=0,
+            hp_max=22,
+            ac=16,
+            is_active=False,
+        )
+        state = CombatState(
+            schema_version=COMBAT_STATE_VERSION,
+            ruleset_id="dnd5e",
+            round_number=1,
+            turn_index=0,
+            initiative_order=("xyz98765",),
+            combatants={"xyz98765": combatant},
+            status="active",
+            started_at="2026-08-07T12:00:00+00:00",
+        )
+        data = combat_state_to_dict(state)
+        self.assertEqual(data["current_combatant_id"], "xyz98765")
+        self.assertFalse(data["combatants"]["xyz98765"]["is_active"])
 
 
 class TestAttackRollResolutionDto(unittest.TestCase):
@@ -522,6 +591,93 @@ class TestAttackRollResolutionDto(unittest.TestCase):
         )
         self.assertTrue(data["outcome"]["automatic_miss"])
         self.assertFalse(data["outcome"]["hit"])
+
+
+class TestWeaponAttackResultDto(unittest.TestCase):
+    def _d20(self, kept: int, *, total_mod: int = 5) -> D20RollResult:
+        req = D20RollRequest(
+            roll_type="attack",
+            ability_modifier=3,
+            proficiency_bonus=2,
+            is_proficient=True,
+            ability="str",
+            melee_weapon=True,
+        )
+        return D20RollResult(
+            request=req,
+            rolls=[kept],
+            is_kept=[True],
+            kept_value=kept,
+            mode="normal",
+            modifier=total_mod,
+            modifier_breakdown="+5",
+            total=kept + total_mod,
+            natural_20=kept == 20,
+            natural_1=kept == 1,
+        )
+
+    def test_weapon_attack_result_dto_hit_with_damage(self):
+        d20 = self._d20(18)
+        attack = AttackRollResolution(
+            d20=d20,
+            outcome=resolve_attack_hit(d20, target_ac=15),
+        )
+        damage = DamageResolution(
+            roll=DamageRollResult(
+                dice_notation="1d8+3",
+                rolls=(6,),
+                modifier=3,
+                total=9,
+                critical=False,
+            ),
+            application=DamageApplicationResult(
+                hp_before=22,
+                hp_after=13,
+                damage_dealt=9,
+            ),
+        )
+        data = weapon_attack_result_to_dict(
+            WeaponAttackResult(
+                attack=attack,
+                damage=damage,
+                target_combatant_id="gob001",
+                target_hp_current=13,
+                target_hp_max=22,
+            )
+        )
+        self.assertEqual(data["attack"]["d20"]["kept_value"], 18)
+        self.assertTrue(data["attack"]["outcome"]["hit"])
+        self.assertIsNotNone(data["damage"])
+        self.assertEqual(data["damage"]["notation"], "1d8+3")
+        self.assertEqual(data["damage"]["rolls"], [6])
+        self.assertEqual(data["damage"]["total"], 9)
+        self.assertEqual(data["damage"]["hp_before"], 22)
+        self.assertEqual(data["damage"]["hp_after"], 13)
+        self.assertEqual(data["damage"]["damage_dealt"], 9)
+        self.assertEqual(data["target"]["combatant_id"], "gob001")
+        self.assertEqual(data["target"]["hp_current"], 13)
+        self.assertEqual(data["target"]["hp_max"], 22)
+        json.dumps(data)
+
+    def test_weapon_attack_result_dto_miss_damage_null(self):
+        d20 = self._d20(5)
+        attack = AttackRollResolution(
+            d20=d20,
+            outcome=resolve_attack_hit(d20, target_ac=18),
+        )
+        data = weapon_attack_result_to_dict(
+            WeaponAttackResult(
+                attack=attack,
+                damage=None,
+                target_combatant_id="gob001",
+                target_hp_current=22,
+                target_hp_max=22,
+            )
+        )
+        self.assertFalse(data["attack"]["outcome"]["hit"])
+        self.assertIsNone(data["damage"])
+        self.assertEqual(data["target"]["hp_current"], 22)
+        json.dumps(data)
 
 
 class TestApiEndpoints(unittest.TestCase):
