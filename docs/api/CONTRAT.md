@@ -44,7 +44,7 @@ Le vocabulaire exposé devient **contrat de stabilité** : tout identifiant stri
 | **`ActiveEffect`** | **Oui** (snapshot) | Liste `active_effects[]` avec les champs de `ActiveEffect.to_dict()` | État observable des buffs/conditions mécaniques ; mutations via actions API, pas via écriture directe |
 | **`ActiveEffectRegistry`** | **Non** | — | Structure runtime (`CombatManager._effect_registries`) ; reconstruite à partir du blob + hydratation (`load_combat`) ; aucune opération client légitime sur le registre lui-même |
 | **Collecteurs `collect_*`** (`rules/effects/collect.py`) | **Non** | — | Traduction registre → `effects[]` pour `d20.py` ; détail d'implémentation ADR-006 décision 3 |
-| **Distinction attaquant / défenseur du collecteur** | **Non** (mécanisme) ; **Oui** (sémantique) | Les actions d'attaque prennent `attacker_id` + `target_id` (identifiants **combattant**) ; le client fournit le **contexte de portée** (`melee_weapon`, `ranged_weapon`) et une **référence d'arme** (`weapon_id` — §2.7) | Le paramètre interne `defender_id` de `roll_d20_for_combatant` est un détail de pipeline ; le contrat API reproduit la paire attaquant/cible + flags de requête |
+| **Distinction attaquant / défenseur du collecteur** | **Non** (mécanisme) ; **Oui** (sémantique) | Les actions d'attaque prennent `attacker_id` + `target_id` (identifiants **combattant**) et `weapon_id` (id compendium arme — §2.7) ; le moteur dérive portée et modificateurs | Le paramètre interne `defender_id` de `roll_d20_for_combatant` est un détail de pipeline ; le contrat API reproduit la paire attaquant/cible + référence d'arme |
 | **Résolution attaque d'arme (lot 2)** | **Oui** | `POST /v1/combats/{id}/attack` — réponse fusionnée jet + dégâts + PV cible (§2.7) | Orchestration API de `resolve_attack_roll` + `apply_damage` ; pas d'état pending dans le blob |
 | **`D20RollRequest`** | **Non** en entrée brute ; **Oui** en sortie partielle | Entrée : sous-ensemble explicite « contexte de jet » par type d'action ; Sortie : objet `d20` dans les résultats (DTO `_d20_result_to_dict`, sans `modifier_breakdown`) | Dataclass interne riche et évolutive |
 | **`D20RollResult`** | **Oui** | Objet structuré dans la réponse d'action | Résultat métier ; déjà sérialisé pour l'API personnage |
@@ -174,8 +174,11 @@ La recherche du combat ouvert se fait **uniquement** par `character_id` — **sa
 |---|---|
 | `attacker_id` | Obligatoire — identifiant **combattant** |
 | `target_id` | Obligatoire — identifiant **combattant** |
-| `melee_weapon` / `ranged_weapon` | Obligatoire — exclusifs (contexte de portée, lot 1) |
-| `weapon_id` | Obligatoire — référence arme (compendium ou inventaire validé moteur) |
+| `weapon_id` | Obligatoire — **id compendium arme** (stable, vocabulaire ruleset) |
+
+**Sémantique `weapon_id`** : clé **compendium**, pas entrée d'inventaire. Le moteur en dérive notation de dégâts, propriétés (finesse, deux mains…) et contexte mêlée/distance pour le jet. Une future vérification « le personnage possède l'arme » s'ajoutera sur le **même** identifiant — sans changer la sémantique du champ.
+
+**Champs retirés (lot 2)** : `melee_weapon`, `ranged_weapon` (lot 1 / `attack-roll`). Le body **`AttackRequest`** n'accepte **aucune** clé supplémentaire (`extra="forbid"`) — un client lot 1 qui les envoie encore reçoit **`422 VALIDATION_ERROR`**, pas un comportement silencieux.
 
 Le client **ne fournit pas** : `attack_bonus`, `damage_amount`, `hit`, `critical` — mêmes principes que le lot 1 (modificateurs dérivés fiche moteur ; dégâts calculés serveur).
 
@@ -212,6 +215,106 @@ Données seulement — pas de champ calculé UI (« peut agir », libellés form
 
 ---
 
+### 2.8 État combat — lecture et visibilité (2026-08-09)
+
+Lot **cohérence lecture combat** : aligner GET et advance-turn, exposer le tour courant, documenter le contrat de sérialisation `combat_state_to_dict`.
+
+#### Paramètre `viewer`
+
+| Aspect | Règle |
+|---|---|
+| **Sémantique** | `character_id` du joueur dont on simule la vue |
+| **Vue MJ** | Paramètre **absent**, `null`, ou **chaîne vide** (y compris espaces seuls après trim) → intégralité des champs |
+| **Routes** | `GET /v1/combats/{combat_id}` et `POST /v1/combats/{combat_id}/advance-turn` uniquement (lot 2026-08-09) |
+| **Erreur** | `404 VIEWER_NOT_IN_COMBAT` si `viewer` non vide et `character_id` absent de la rencontre |
+| **Hors périmètre lot** | `viewer` sur `create`, `activate`, `close`, `attack` — ces réponses restent vue MJ ou DTO action sans filtrage |
+
+#### Trois politiques de visibilité coexistantes
+
+| Source | Clé d'entrée | Champs sensibles |
+|---|---|---|
+| **Agrégat combat** | `viewer` query (`character_id`) ou MJ | PV, CA, budget, concentration : soi ou MJ ; autres combattants : champs publics seulement |
+| **Fiche personnage** | `character_id` dans l'URL (`GET …/sheet`) | Overlay du **personnage de la route** uniquement ; effets ciblant son `combatant_id` |
+| **Résultat d'attaque** | — (`POST …/attack`) | Bloc `target` : `hp_current` / `hp_max` **toujours** exposés post-action — pas de filtrage `viewer` |
+
+#### Pont `character_id` ↔ `combatant_id`
+
+Deux espaces d'identifiants stables (§1.3) coexistent dans l'agrégat combat :
+
+| Identifiant | Où l'utiliser |
+|---|---|
+| `character_id` | Paramètre `viewer` ; clé fiche perso ; recherche combat ouvert par personnage |
+| `combatant_id` | Clés de `combatants` ; `initiative_order[]` ; `active_effects[].target_id` ; `active_effects[].source_id` ; corps `attack` (`attacker_id`, `target_id`) ; `current_combatant_id` |
+
+**Traduction** : la map `combatants` est le dictionnaire de correspondance — chaque entrée porte les deux identifiants. Pour un `cid` dans `initiative_order`, `combatants[cid].character_id` donne le personnage ; inversement, parcourir les valeurs pour résoudre un `character_id` vers un `combatant_id`.
+
+#### Champ `current_combatant_id`
+
+| Situation | Valeur JSON |
+|---|---|
+| `initiative_order` vide | `null` |
+| `turn_index` hors `[0, len(initiative_order)-1]` | `null` |
+| Sinon | `initiative_order[turn_index]` |
+
+**Sémantique** : slot de tour dans l'ordre d'initiative **figé** — **pas** « qui peut agir maintenant ». Le moteur peut légitimement y pointer un combattant `is_active: false` (ex. après retrait sans avancement) ; `TurnEnded` est publié sur cet identifiant.
+
+Le client **ne doit pas** déduire le tour courant via `initiative_order[turn_index]` — utiliser `current_combatant_id`.
+
+#### Champs de l'agrégat combat (sérialisation API)
+
+| Champ | Notes |
+|---|---|
+| `combat_id` | **Toujours `number`** via HTTP (identifiant route). Le `null` possible dans le sérialiseur interne (`state.combat_id` absent) n'atteint jamais le client — artefact blob, pas contrat HTTP. |
+| `status` | `preparing` \| `active` \| `ended` |
+| `round_number` | **`0` en `preparing`** (avant activation) ; ≥ 1 en `active` |
+| `turn_index` | Index dans `initiative_order` ; non validé au chargement blob |
+| `initiative_order` | Liste ordonnée de `combatant_id` |
+| `combatants` | Map `combatant_id` → objet combattant |
+| `active_effects` | Snapshot ; voir ci-dessous |
+| `started_at` / `ended_at` | ISO 8601 UTC (ex. `2026-08-07T12:00:00+00:00`) ou `null` |
+
+**Exclus volontairement de l'API combat** : `schema_version`, `guild_id`, `channel_id` (internes persistence / blob).
+
+#### Combattant embarqué
+
+| Champ | Toujours | Conditionnel |
+|---|---|---|
+| `combatant_id`, `display_name`, `kind`, `character_id`, `is_active` | Oui | — |
+| `initiative_total` | — | Présent si jet établi (absent en lobby avant activation) |
+| `hp_current`, `hp_max`, `ac`, `concentration_*`, `action_budget` | — | Vue MJ ou combattant « soi » uniquement |
+
+**`kind`** — énumération fermée v1 : `"player_character"` (seule valeur domaine aujourd'hui).
+
+**Omission vs `null`** : un champ **masqué** ou **non applicable** est **absent** de l'objet JSON. Le client **ne doit jamais** interpréter `null` comme « non visible ». S'applique à `hp_current`, `ac`, `action_budget`, `initiative_total`, `duration_rounds` (effets), etc.
+
+#### `active_effects[]`
+
+| Champ | Règle |
+|---|---|
+| `effect_id` | Opaque — vocabulaire moteur ; **pas de libellé lisible** en v1 (lot affichage / compendium ultérieur) |
+| `source_id`, `target_id` | `combatant_id` |
+| `applied_at_round`, `expiry_mode` | Toujours |
+| `duration_rounds` | Présent si défini ; absent si `null` |
+| `expires_at_round` | **Exclu** — recomposable : `applied_at_round + duration_rounds` quand applicable |
+
+Filtrage `viewer` joueur : effets dont `target_id` = combattant du viewer ; MJ : liste intégrale.
+
+#### Matrice statut × actions (routes v1)
+
+| Statut | Actions autorisées | Lecture |
+|---|---|---|
+| **`preparing`** | `GET`, `POST activate`, `POST close` ; ajout combattant moteur (`add_combatant`) | `initiative_order` vide ; `current_combatant_id` null ; `round_number` 0 |
+| **`active`** | `GET`, `POST attack`, `POST advance-turn`, `POST close` ; mutations moteur combat | Ordre établi ; budgets rafraîchis au début de tour |
+| **`ended`** | `GET` (état final) ; `POST close` idempotent côté moteur | `advance-turn` / `attack` → `409 COMBAT_STATUS_INVALID` |
+
+Les transitions invalides lèvent `CombatStatusError` → `409 COMBAT_STATUS_INVALID` (message français variable).
+
+#### Asymétrie POST mutate (documentée, non corrigée lot 2026-08-09)
+
+`POST create`, `activate`, `close` renvoient `combat_state_to_dict` **sans** `viewer` — vue MJ intégrale. Seuls `GET` et `advance-turn` filtrent. Un client qui enchaîne mutation puis relecture filtrée doit préférer `GET ?viewer=` après mutation.
+
+---
+
 ## 3. Format d'erreur
 
 ### 3.1 Structure unique
@@ -240,7 +343,7 @@ Migration : l'API personnage actuelle (`detail` string) adopte ce format — bre
 |---|---|
 | **404** | Ressource absente |
 | **409** | Règle métier / conflit d'état |
-| **422** | Validation corps (`VALIDATION_ERROR`) |
+| **422** | Validation corps ou valeur métier inconnue dans le body (`VALIDATION_ERROR`, `WEAPON_UNKNOWN`) |
 | **500** | Erreur inattendue (`INTERNAL_ERROR`) |
 
 ### 3.3 Codes stables (minimum contractuel)
@@ -258,9 +361,11 @@ Migration : l'API personnage actuelle (`detail` string) adopte ce format — bre
 | `OpenCombatExistsError` | `OPEN_COMBAT_EXISTS` |
 | `InsufficientCombatantsError` | `INSUFFICIENT_COMBATANTS` |
 | `NotCombatantTurnError` | `NOT_COMBATANT_TURN` |
+| `UnknownWeaponError` | `WEAPON_UNKNOWN` (HTTP **422**) |
 | `CombatStateVersionError` | `COMBAT_STATE_UNSUPPORTED` |
 | `require_spell_attack_type` | `SPELL_ATTACK_TYPE_MISSING` |
 | Personnage déjà dans un combat ouvert | `CHARACTER_ALREADY_IN_COMBAT` |
+| `viewer` (`character_id`) absent de la rencontre | `VIEWER_NOT_IN_COMBAT` |
 
 ---
 
@@ -302,7 +407,8 @@ snake_case ; vocabulaire SRD ; modes de jet `normal` / `avantage` / `desavantage
 |---|---|---|
 | Fiche (fusionnée si combat ouvert) | `GET /v1/characters/{character_id}/sheet` | — |
 | Créer rencontre (lobby) | `POST /v1/combats` | `character_ids` obligatoire ; `channel_id`, `guild_id` optionnels |
-| Lire rencontre | `GET /v1/combats/{combat_id}` | — |
+| Lire rencontre | `GET /v1/combats/{combat_id}` | Query `viewer` optionnel (`character_id`) — §2.8 |
+| Avancer le tour | `POST /v1/combats/{combat_id}/advance-turn` | Query `viewer` optionnel — §2.8 |
 | Activer | `POST /v1/combats/{combat_id}/activate` | — |
 | Attaque d'arme (fusionnée) | `POST /v1/combats/{combat_id}/attack` | §2.7 |
 | Clore | `POST /v1/combats/{combat_id}/close` | — |
@@ -382,6 +488,8 @@ Le code Discord (`bot/`, `interfaces/discord/`) reste en dépôt pour le vocal e
 | 15 | Route `POST …/attack` remplace `attack-roll` (breaking change) | Tranché (2026-08-07) |
 | 16 | Réponse en blocs `attack` / `damage` / `target` | Tranché (2026-08-07) |
 | 17 | `weapon_id` client ; dégâts calculés moteur — pas d'injection | Tranché (2026-08-07) |
+| 18 | `weapon_id` = id **compendium** arme (pas inventaire) | Tranché (2026-08-07) |
+| 19 | Body `attack` : `extra="forbid"` — rejette `melee_weapon`/`ranged_weapon` legacy | Tranché (2026-08-07) |
 
 ---
 
@@ -404,7 +512,9 @@ Le code Discord (`bot/`, `interfaces/discord/`) reste en dépôt pour le vocal e
 
 ### 10.2 Rejoindre un combat déjà `active`
 
-Voir §10.1. `add_combatant` moteur n'accepte aujourd'hui que `preparing` ; le contrat ne fige pas la liste des combattants comme immuable après `activate`.
+Le moteur **`add_combatant`** accepte les statuts **`preparing` et `active`** : en combat actif, le nouveau PJ reçoit un jet d'initiative et est inséré dans l'ordre figé sans recalculer les tours passés (`combat_manager.add_combatant`).
+
+**API v1** : pas encore de route HTTP exposant ce join — prérequis documentaire pour une future `POST /v1/combats/{id}/combatants`. Le contrat ne fige pas la liste des combattants comme immuable après `activate`.
 
 ### 10.3 Scope repository
 
@@ -415,6 +525,13 @@ L'unicité `(guild_id, channel_id)` pour combats ouverts reste en base ; l'API m
 | Dette | État | Résolution cible |
 |---|---|---|
 | **`COMBAT_STATE_UNSUPPORTED` non câblé** | Identifiée | Mapper `CombatStateVersionError` → `409` + code §3.3 sur le **chemin de chargement** d'état combat — pas route par route. Routes concernées : `GET /v1/combats/{id}`, `activate`, `attack`, `close`, fiche fusionnée. Aujourd'hui : blob incompatible → `500 INTERNAL_ERROR`. Aucun blob legacy en circulation — non bloquant. |
+
+### 10.5 Dette lot 2 — catalogue armes compendium (2026-08-07)
+
+| Dette | État | Résolution cible |
+|---|---|---|
+| **Pas de catalogue `compendium/…/weapons/` exploitable** | Identifiée | Schéma compendium armes (notation dégâts, mêlée/distance, finesse…) puis lookup `weapon_id` → YAML. |
+| **Liste fermée transitoire (commit 2)** | Acceptée si compendium absent | Tant que le catalogue n'existe pas : ids documentés **`longsword`**, **`shortsword`**, **`shortbow`**, **`longbow`** — suffisants au parcours §5.1. Implémentation = table explicite côté API/moteur, **référencée ici** ; retrait dès le compendium armes livré. Pas de liste en dur non documentée. |
 
 ---
 
