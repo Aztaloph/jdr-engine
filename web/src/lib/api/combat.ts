@@ -1,6 +1,7 @@
 import type { ApiErrorPayload, CombatState, LoadError } from "../types/combat";
+import type { WeaponAttackResult, WeaponId } from "../types/attack";
 
-async function parseJsonResponse(res: Response): Promise<CombatState | LoadError> {
+async function parseJsonResponse<T>(res: Response): Promise<T | LoadError> {
   const text = await res.text();
   let payload: unknown;
   try {
@@ -15,7 +16,7 @@ async function parseJsonResponse(res: Response): Promise<CombatState | LoadError
   }
 
   if (res.ok) {
-    return payload as CombatState;
+    return payload as T;
   }
 
   const err = payload as ApiErrorPayload;
@@ -66,7 +67,7 @@ export async function fetchCombatState(
     } satisfies LoadError;
   }
 
-  const result = await parseJsonResponse(res);
+  const result = await parseJsonResponse<CombatState>(res);
   if ("kind" in result) {
     throw result;
   }
@@ -103,7 +104,46 @@ export async function advanceCombatTurn(
     } satisfies LoadError;
   }
 
-  const result = await parseJsonResponse(res);
+  const result = await parseJsonResponse<CombatState>(res);
+  if ("kind" in result) {
+    throw result;
+  }
+  return result;
+}
+
+export interface AttackRequest {
+  attacker_id: string;
+  target_id: string;
+  weapon_id: WeaponId;
+}
+
+export async function postWeaponAttack(
+  combatId: string,
+  body: AttackRequest,
+): Promise<WeaponAttackResult> {
+  const id = combatId.trim();
+  if (!id) {
+    throw { kind: "network", message: "combat_id requis." } satisfies LoadError;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`/v1/combats/${encodeURIComponent(id)}/attack`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (cause) {
+    throw {
+      kind: "network",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : "API injoignable — vérifiez qu'uvicorn tourne sur le port 8000.",
+    } satisfies LoadError;
+  }
+
+  const result = await parseJsonResponse<WeaponAttackResult>(res);
   if ("kind" in result) {
     throw result;
   }

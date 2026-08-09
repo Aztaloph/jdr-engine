@@ -1,7 +1,7 @@
-# Client web — banc de test combat (lot 1)
+# Client web — banc de test combat
 
-SPA **Svelte + Vite + TypeScript** pour valider empiriquement le contrat
-`combat_state_to_dict` exposé par l'API.
+SPA **Svelte + Vite + TypeScript** pour valider empiriquement les contrats API
+combat (`combat_state_to_dict`, `weapon_attack_result_to_dict`).
 
 ## Prérequis
 
@@ -13,7 +13,7 @@ SPA **Svelte + Vite + TypeScript** pour valider empiriquement le contrat
 
 2. **Node.js** 18+ et npm.
 
-3. Un **combat_id** existant (créer/activer via API ou tests E2E — pas de découverte auto dans l'UI).
+3. Un **combat_id** existant en statut `active` (créer/activer via API ou tests E2E).
 
 ## Installation
 
@@ -36,20 +36,22 @@ Le proxy Vite redirige `/v1/*` vers `http://127.0.0.1:8000` — pas de configura
 
 1. Saisir le **combat_id** (ex. `1`).
 2. Optionnel : **viewer** = `character_id` joueur ; laisser vide pour la vue MJ.
-3. **Recharger** → `GET /v1/combats/{id}`.
-4. **Tour suivant** → `POST /v1/combats/{id}/advance-turn` (avec `viewer` en query si renseigné).
+3. **Recharger** → `GET /v1/combats/{id}?viewer=`.
+4. **Tour suivant** → `POST /v1/combats/{id}/advance-turn`.
+5. **Attaquer** (combat `active`) → `POST /v1/combats/{id}/attack` — sélection `combatant_id` attaquant/cible, arme fermée.
 
-« Tour suivant » est désactivé si `status !== "active"` (ex. combat terminé).
+« Tour suivant » et « Attaquer » sont désactivés si `status !== "active"`.
 
 ## Types
 
-Contrat TypeScript : `src/lib/types/combat.ts` — miroir de la sérialisation Python.
+| Fichier | Contrat Python |
+|---|---|
+| `src/lib/types/combat.ts` | `combat_state_to_dict` |
+| `src/lib/types/attack.ts` | `weapon_attack_result_to_dict` |
 
-## Build production
+## Vérification
 
 ```bash
 npm run build
-npm run preview
+npm run check
 ```
-
-Le preview sert les fichiers statiques ; le proxy de dev ne s'applique plus — configurer un reverse proxy ou CORS pour une API distante.

@@ -158,3 +158,82 @@ button:disabled {
   opacity: 0.8;
   margin: 0;
 }
+
+.error-box .hint {
+  display: block;
+  margin-top: 0.35rem;
+}
+
+.mono {
+  font-family: ui-monospace, monospace;
+  font-size: 0.88em;
+  font-weight: normal;
+}
+
+.hud-current {
+  border: 1px solid var(--current-border);
+  background: var(--current-bg);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.hud-current h2 {
+  font-size: 1rem;
+  margin: 0 0 0.35rem;
+}
+
+.attack-panel,
+.attack-result {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.attack-panel h2,
+.attack-result h2 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+
+.attack-form {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+
+.attack-form label {
+  margin-bottom: 0;
+}
+
+.attack-form select {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  font: inherit;
+}
+
+.result-dl {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.result-dl div {
+  margin-bottom: 0.35rem;
+}
+
+.result-dl dt {
+  font-weight: 600;
+  display: inline;
+}
+
+.result-dl dt::after {
+  content: " : ";
+}
+
+.result-dl dd {
+  display: inline;
+  margin: 0;
+}
