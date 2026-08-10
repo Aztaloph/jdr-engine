@@ -238,7 +238,7 @@ Lot **cohérence lecture combat** : aligner GET et advance-turn, exposer le tour
 |---|---|
 | **Sémantique** | `character_id` du joueur dont on simule la vue |
 | **Vue MJ** | Paramètre **absent**, `null`, ou **chaîne vide** (y compris espaces seuls après trim) → intégralité des champs |
-| **Routes** | `GET` et `POST advance-turn` et `POST attack` — query `viewer` optionnel (`character_id`) |
+| **Routes** | `GET`, `POST advance-turn`, `POST attack` et `POST cast` — query `viewer` optionnel (`character_id`) |
 | **Erreur** | `404 VIEWER_NOT_IN_COMBAT` si `viewer` non vide et `character_id` absent de la rencontre |
 | **Hors périmètre viewer** | `create`, `activate`, `close` — réponses vue MJ intégrale (actions MJ) |
 
@@ -312,19 +312,96 @@ Le client **ne doit pas** déduire le tour courant via `initiative_order[turn_in
 
 Filtrage `viewer` joueur : effets dont `target_id` = combattant du viewer ; MJ : liste intégrale.
 
+#### Bloc `viewer` (query `viewer` renseigné)
+
+Présent sur `GET`, `POST advance-turn`, `POST attack` et `POST cast` lorsque le query `viewer` (`character_id`) est non vide après trim.
+
+| Champ | Règle |
+|---|---|
+| `character_id` | Echo du paramètre query |
+| `combatant_id` | `combatant_id` résolu via `combatants` ; **`null`** si le personnage ne participe pas au combat |
+| `castable_spells` | Liste ordonnée de `spell_id` overlay lançables **maintenant** par ce combattant |
+
+**Critères `castable_spells[]`** (moteur `list_combat_castable_spell_ids`) :
+
+1. Combat `active` et combattant `is_active`.
+2. `action_budget` exposé et suffisant pour le `action_kind` du sort (registre overlay).
+3. Sort présent dans le registre overlay avec **`expose_in_castable: true`** — exclut **`shield`** (réaction, `expose_in_castable: false`).
+4. Tour : `require_own_turn: true` → uniquement au tour propre ; `false` → uniquement **hors** tour propre (réactions — non listées tant qu'`expose_in_castable` est faux).
+5. Sort disponible sur la fiche (`spell_is_available`).
+
+Registre overlay v1 : `hunters_mark`, `hex`, `bless`, `shield` — seuls les trois premiers peuvent apparaître dans `castable_spells` (`shield` exclu).
+
+Absent du query `viewer` ou vue MJ : pas de bloc `viewer`.
+
 #### Matrice statut × actions (routes v1)
 
 | Statut | Actions autorisées | Lecture |
 |---|---|---|
 | **`preparing`** | `GET`, `POST activate`, `POST close` ; ajout combattant moteur (`add_combatant`) | `initiative_order` vide ; `current_combatant_id` null ; `round_number` 0 |
-| **`active`** | `GET`, `POST attack`, `POST advance-turn`, `POST close` ; mutations moteur combat | Ordre établi ; budgets rafraîchis au début de tour |
+| **`active`** | `GET`, `POST attack`, `POST cast`, `POST advance-turn`, `POST close` ; mutations moteur combat | Ordre établi ; budgets rafraîchis au début de tour |
 | **`ended`** | `GET` (état final) ; `POST close` idempotent côté moteur | `advance-turn` / `attack` → `409 COMBAT_STATUS_INVALID` |
 
 Les transitions invalides lèvent `CombatStatusError` → `409 COMBAT_STATUS_INVALID` (message français variable).
 
 #### Asymétrie POST mutate (documentée)
 
-`POST create`, `activate`, `close` renvoient `combat_state_to_dict` **sans** `viewer` — vue MJ intégrale. Actions MJ sans conséquence visibilité joueur. **`POST attack`** et **`GET`** / **`advance-turn`** partagent la politique `viewer` (2026-08-09). Un client qui enchaîne mutation MJ puis relecture filtrée doit préférer `GET ?viewer=` après mutation.
+`POST create`, `activate`, `close` renvoient `combat_state_to_dict` **sans** `viewer` — vue MJ intégrale. Actions MJ sans conséquence visibilité joueur. **`POST attack`**, **`POST cast`**, **`GET`** et **`advance-turn`** partagent la politique `viewer` (2026-08-09). Un client qui enchaîne mutation MJ puis relecture filtrée doit préférer `GET ?viewer=` après mutation.
+
+---
+
+### 2.9 Sort en combat — `POST /v1/combats/{combat_id}/cast` (2026-08-10)
+
+Route unifiée pour les sorts overlay et le dispatch combat (registre ADR-006 + attaque/sauvegarde hors overlay).
+
+#### Requête
+
+| Élément | Règle |
+|---|---|
+| **Query** | `viewer` optionnel (`character_id`) — filtre la réponse comme §2.8 |
+| **Corps** | `caster_id` (`combatant_id`), `spell_id`, `target_ids[]`, `slot_level` optionnel |
+| **`extra`** | **Interdit** (`422 VALIDATION_ERROR`) |
+
+**`target_ids`** : liste de `combatant_id` — bornes par sort (registre overlay) :
+
+| `spell_id` | Cibles min–max | `action_kind` |
+|---|---|---|
+| `hunters_mark` | 1–1 | `bonus_action` |
+| `hex` | 1–1 | `action` |
+| `bless` | 1–3 | `action` |
+| `shield` | 0–0 (corps vide) | `reaction` |
+
+#### `slot_level`
+
+| Cas | Comportement |
+|---|---|
+| Champ **absent** ou **`null`** | Accepté |
+| Valeur **présente** | **Rejeté** — `422 SPELL_CAST_REJECTED` (message : `slot_level non pris en charge pour '<spell_id>' en combat.`) |
+| Registre `UPCAST_COMBAT_SPELLS` | **Vide** en v1 — aucun sort n'accepte l'upcast combat |
+
+Validation Pydantic : si présent, entier `1`–`9` ; le rejet métier intervient ensuite dans le moteur.
+
+#### Réponse
+
+`combat_state_to_dict` complet (même forme que `GET`) — **pas** de DTO sort dédié. Le client anime depuis l'état renvoyé ou relit via `GET`.
+
+#### Erreurs stables
+
+| Situation | HTTP | `code` |
+|---|---|---|
+| Combat absent | 404 | `COMBAT_NOT_FOUND` |
+| `caster_id` / cible absente de la rencontre | 404 | `COMBATANT_NOT_FOUND` |
+| Personnage SQLite introuvable | 404 | `CHARACTER_NOT_FOUND` |
+| Hors tour / budget / statut | 409 | `NOT_COMBATANT_TURN`, `ACTION_BUDGET_EXHAUSTED`, `COMBAT_STATUS_INVALID` |
+| Règle sort (cibles, emplacement, etc.) | 422 | `SPELL_CAST_REJECTED` |
+| `viewer` inconnu | 404 | `VIEWER_NOT_IN_COMBAT` |
+
+#### Écarts connus client (non bloquants en local)
+
+| Écart | Détail |
+|---|---|
+| **`bless` multi-cible** | Le serveur accepte jusqu'à **3** cibles ; le panneau web v1 n'envoie qu'**une** cible via le sélecteur partagé avec l'attaque. |
+| **`caster_id` vs `viewer`** | Le corps fixe le lanceur (`combatant_id`) ; le query `viewer` ne filtre que la **réponse**. Aucun contrôle d'autorisation — un client peut lancer au nom de n'importe quel combattant (trou identifié, acceptable banc local). |
 
 ---
 
@@ -410,9 +487,10 @@ snake_case ; vocabulaire SRD ; modes de jet `normal` / `avantage` / `desavantage
 2. `POST /v1/combats` — body minimal `{ "character_ids": [...] }` ; vérification unicité lobby
 3. `POST /v1/combats/{id}/activate`
 4. `POST /v1/combats/{id}/attack` — attaque d'arme complète (jet + dégâts si toucher — §2.7)
-5. `GET /v1/combats/{id}` — état rencontre
-6. `GET /v1/characters/{id}/sheet` — **fiche fusionnée** si combat ouvert (`preparing` ou `active` — §2.6) : PV overlay, effets actifs
-7. `POST /v1/combats/{id}/close` — clôture + sync PV fiche
+5. `POST /v1/combats/{id}/cast` — sort en combat (overlay ou dispatch — §2.9)
+6. `GET /v1/combats/{id}` — état rencontre
+7. `GET /v1/characters/{id}/sheet` — **fiche fusionnée** si combat ouvert (`preparing` ou `active` — §2.6) : PV overlay, effets actifs
+8. `POST /v1/combats/{id}/close` — clôture + sync PV fiche
 
 ### 5.2 Ressources (intention, sans schémas)
 
@@ -424,6 +502,7 @@ snake_case ; vocabulaire SRD ; modes de jet `normal` / `avantage` / `desavantage
 | Avancer le tour | `POST /v1/combats/{combat_id}/advance-turn` | Query `viewer` optionnel — §2.8 |
 | Activer | `POST /v1/combats/{combat_id}/activate` | — |
 | Attaque d'arme (fusionnée) | `POST /v1/combats/{combat_id}/attack` | §2.7 ; query `viewer` optionnel — §2.8 |
+| Sort en combat | `POST /v1/combats/{combat_id}/cast` | §2.9 ; query `viewer` optionnel — §2.8 |
 | Clore | `POST /v1/combats/{combat_id}/close` | — |
 
 ### 5.3 Lot 1 — livré
