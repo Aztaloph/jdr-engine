@@ -1,5 +1,6 @@
 <script lang="ts">
   import Router, { link, router } from "svelte-spa-router";
+  import LandingScreen from "./lib/screens/LandingScreen.svelte";
   import LobbyScreen from "./lib/screens/LobbyScreen.svelte";
   import CombatScreen from "./lib/screens/CombatScreen.svelte";
   import CharacterScreen from "./lib/screens/CharacterScreen.svelte";
@@ -9,16 +10,19 @@
   ensureDefaultRoute();
 
   const routes: RouteDefinition = {
-    "/": LobbyScreen,
+    "/": LandingScreen,
     "/lobby": LobbyScreen,
     "/combat/:id": CombatScreen,
     "/character/:id": CharacterScreen,
-    "*": LobbyScreen,
+    "*": LandingScreen,
   };
 
-  const isLobbyRoute = $derived(
-    router.location === "/" || router.location === "/lobby",
+  /** Routes applicatives — cadre centré + nav interne ; le reste = landing pleine page. */
+  const isAppRoute = $derived(
+    /^\/(lobby|combat\/|character\/)/.test(router.location),
   );
+
+  const isLobbyRoute = $derived(router.location === "/lobby");
 
   const combatNavId = $derived.by(() => {
     const match = router.location.match(/^\/combat\/([^/]+)/);
@@ -31,16 +35,21 @@
   });
 </script>
 
-<nav class="app-nav" aria-label="Navigation principale">
-  <a href="/lobby" use:link class:active={isLobbyRoute}>Lobby</a>
-  {#if combatNavId}
-    <span class="nav-sep">·</span>
-    <span class="nav-current">Combat {combatNavId}</span>
+<div class:app-frame={isAppRoute}>
+  {#if isAppRoute}
+    <nav class="app-nav" aria-label="Navigation principale">
+      <a href="/" use:link class="nav-home">JDR Engine</a>
+      <span class="nav-sep">·</span>
+      <a href="/lobby" use:link class:active={isLobbyRoute}>Lobby</a>
+      {#if combatNavId}
+        <span class="nav-sep">·</span>
+        <span class="nav-current">Combat {combatNavId}</span>
+      {/if}
+      {#if characterNavId}
+        <span class="nav-sep">·</span>
+        <span class="nav-current">Fiche {characterNavId}</span>
+      {/if}
+    </nav>
   {/if}
-  {#if characterNavId}
-    <span class="nav-sep">·</span>
-    <span class="nav-current">Fiche {characterNavId}</span>
-  {/if}
-</nav>
-
-<Router {routes} />
+  <Router {routes} />
+</div>

@@ -57,4 +57,8 @@
 
   /* Layout — 52rem levé (brief) ; largeur utile pour futur HUD 3 colonnes */
   --layout-max-width: min(80rem, 100%);
+
+  /* Landing */
+  --landing-max-width: 72rem;
+  --glow-accent: 0 0 45px rgb(245 158 11 / 0.22);
 }

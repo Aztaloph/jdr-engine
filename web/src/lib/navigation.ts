@@ -44,7 +44,7 @@ export function navigateToCharacter(characterId: string): void {
 
 export function ensureDefaultRoute(): void {
   const hash = window.location.hash;
-  if (!hash || hash === "#" || hash === "#/") {
-    void replace("/lobby");
+  if (!hash || hash === "#") {
+    void replace("/");
   }
 }
