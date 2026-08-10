@@ -7,15 +7,20 @@
     postCombatCast,
     postWeaponAttack,
   } from "../api/combat";
-  import type { CombatState, LoadError } from "../types/combat";
+  import type { ActiveEffect, CombatState, LoadError } from "../types/combat";
   import {
     WEAPON_IDS,
     type WeaponAttackResult,
     type WeaponId,
   } from "../types/attack";
-  import { link, router } from "svelte-spa-router";
+  import { router } from "svelte-spa-router";
   import { navigateToCombat, navigateToLobby, viewerFromQuerystring } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
+  import Panel from "../components/combat/Panel.svelte";
+  import CombatantCard from "../components/combat/CombatantCard.svelte";
+  import JournalItem from "../components/combat/JournalItem.svelte";
+  import MapPlaceholder from "../components/combat/MapPlaceholder.svelte";
+  import DiceBar from "../components/combat/DiceBar.svelte";
 
   type JournalEntry =
     | {
@@ -97,6 +102,28 @@
       : undefined,
   );
 
+  /** Effets actifs regroupés par combattant ciblé — pour les badges des cartes. */
+  const effectsByTarget = $derived.by(() => {
+    const map = new Map<string, ActiveEffect[]>();
+    if (combat) {
+      for (const effect of combat.active_effects) {
+        const list = map.get(effect.target_id) ?? [];
+        list.push(effect);
+        map.set(effect.target_id, list);
+      }
+    }
+    return map;
+  });
+
+  /** Ordre d'affichage du groupe — initiative si établie, sinon tous les combattants. */
+  const groupOrder = $derived(
+    combat
+      ? combat.initiative_order.length > 0
+        ? combat.initiative_order
+        : Object.keys(combat.combatants)
+      : [],
+  );
+
   $effect(() => {
     viewer = initialViewer;
   });
@@ -136,6 +163,15 @@
       return cid;
     }
     return `${c.display_name} (${cid})`;
+  }
+
+  function initialsOf(name: string): string {
+    return name
+      .split(/\s+/)
+      .map((word) => word[0] ?? "")
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
   }
 
   function formatHp(c: CombatState["combatants"][string]): string {
@@ -317,378 +353,623 @@
   }
 </script>
 
-<h1>Combat</h1>
-<p class="hint">
-  combat_id <span class="mono">{combatId}</span> — round et initiative mis à jour
-  après chaque action.
-</p>
+<div class="combat-screen">
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand">JDR Engine</span>
+      <span class="sep" aria-hidden="true">·</span>
+      <h1 class="encounter">Rencontre <span class="mono">#{combatId}</span></h1>
+      <span class="soon-chip">Campagne — à venir</span>
+    </div>
 
-<fieldset>
-  <legend>Vue joueur (sorts)</legend>
-  {#if combatParticipants.length > 0}
-    <label>
-      viewer — personnage dont vous simulez la vue
-      <select bind:value={viewer} onchange={onViewerSelect}>
-        <option value="">— Vue MJ (pas de sorts joueur) —</option>
-        {#each combatParticipants as p (p.character_id)}
-          <option value={p.character_id}>
-            {p.display_name} ({p.character_id})
-          </option>
-        {/each}
-      </select>
-    </label>
-  {:else}
-    <label>
-      viewer (character_id)
-      <input
-        type="text"
-        bind:value={viewer}
-        oninput={onViewerSelect}
-        placeholder="ex. a505d6d5"
-        autocomplete="off"
-      />
-    </label>
-  {/if}
-  <p class="hint">
-    Sorts combat (overlay v1) : <code>hunters_mark</code> rôdeur ·
-    <code>bless</code> clerc · <code>hex</code>. Au tour du viewer, avec le budget
-    requis. Le magicien n'y figure pas (<code>shield</code> = réaction, hors panneau).
+    {#if combat}
+      <div class="topbar-pills">
+        <span class="pill pill-accent">Round {combat.round_number}</span>
+        {#if currentTurnCombatant}
+          <span class="pill">Tour de : <strong>{currentTurnCombatant.display_name}</strong></span>
+        {/if}
+        <span class="pill pill-muted">{combat.status}</span>
+      </div>
+    {/if}
+
+    <div class="topbar-controls">
+      {#if combatParticipants.length > 0}
+        <label class="viewer-control">
+          <span class="viewer-label">Vue joueur</span>
+          <select bind:value={viewer} onchange={onViewerSelect}>
+            <option value="">— Vue MJ —</option>
+            {#each combatParticipants as p (p.character_id)}
+              <option value={p.character_id}>
+                {p.display_name} ({p.character_id})
+              </option>
+            {/each}
+          </select>
+        </label>
+      {:else}
+        <label class="viewer-control">
+          <span class="viewer-label">Vue joueur (character_id)</span>
+          <input
+            type="text"
+            bind:value={viewer}
+            oninput={onViewerSelect}
+            placeholder="ex. a505d6d5"
+            autocomplete="off"
+          />
+        </label>
+      {/if}
+      <button type="button" onclick={reload} disabled={loading}>
+        {loading ? "Chargement…" : "Recharger"}
+      </button>
+      <button type="button" onclick={closeAndReturnToLobby} disabled={loading || !combatId}>
+        Clôturer
+      </button>
+    </div>
+  </header>
+  <p class="topbar-hint hint">
+    Round et initiative mis à jour après chaque action.
   </p>
-</fieldset>
 
-<div class="actions">
-  <button type="button" onclick={reload} disabled={loading}>
-    {loading ? "Chargement…" : "Recharger"}
-  </button>
-  <button type="button" onclick={advanceTurn} disabled={!canAdvance}>
-    Tour suivant
-  </button>
-  <button type="button" onclick={closeAndReturnToLobby} disabled={loading || !combatId}>
-    Clôturer le combat
-  </button>
+  {#if error}
+    <ErrorAlert {error} />
+  {/if}
+
+  {#if combat}
+    <div class="hud-grid" aria-live="polite">
+      <div class="col col-left">
+        <Panel title="Membres du groupe">
+          {#if groupOrder.length === 0}
+            <p class="hint">Aucun combattant.</p>
+          {:else}
+            {#each groupOrder as cid (cid)}
+              {@const c = combat.combatants[cid]}
+              {#if c}
+                <CombatantCard
+                  combatant={c}
+                  isTurn={cid === combat.current_combatant_id}
+                  effects={effectsByTarget.get(cid) ?? []}
+                />
+              {/if}
+            {/each}
+          {/if}
+        </Panel>
+
+        <Panel title="Ordre d'initiative">
+          {#if combat.initiative_order.length === 0}
+            <p class="hint">Ordre vide.</p>
+          {:else}
+            <ol class="init-track">
+              {#each combat.initiative_order as cid (cid)}
+                {@const c = combat.combatants[cid]}
+                <li
+                  class="init-token"
+                  class:is-turn={cid === combat.current_combatant_id}
+                  class:is-inactive={c !== undefined && !c.is_active}
+                >
+                  <span class="init-avatar" aria-hidden="true">
+                    {initialsOf(c?.display_name ?? cid)}
+                  </span>
+                  <span class="init-name">{c?.display_name ?? cid}</span>
+                  {#if c?.initiative_total !== undefined}
+                    <span class="init-score">{c.initiative_total}</span>
+                  {/if}
+                </li>
+              {/each}
+            </ol>
+          {/if}
+        </Panel>
+
+        {#if combat.active_effects.length > 0}
+          <Panel title="Effets actifs">
+            <ul class="effects-list">
+              {#each combat.active_effects as effect (effect.effect_id + effect.target_id + effect.applied_at_round)}
+                <li>
+                  <span class="mono">{effect.effect_id}</span>
+                  → {combatantName(effect.target_id, combat)}
+                  <span class="hint">(round {effect.applied_at_round}, {effect.expiry_mode})</span>
+                </li>
+              {/each}
+            </ul>
+          </Panel>
+        {/if}
+      </div>
+
+      <div class="col col-center">
+        <MapPlaceholder />
+      </div>
+
+      <div class="col col-right">
+        <Panel
+          title={currentTurnCombatant
+            ? `Fiche active : ${currentTurnCombatant.display_name}`
+            : "Fiche active"}
+        >
+          {#if currentTurnCombatant}
+            <div class="active-stats">
+              <span>{formatHp(currentTurnCombatant)}</span>
+              {#if currentTurnCombatant.ac !== undefined}
+                <span>CA {currentTurnCombatant.ac}</span>
+              {/if}
+            </div>
+            {#if currentTurnCombatant.action_budget}
+              <ul class="budget-list">
+                <li>{budgetLine("Action", currentTurnCombatant.action_budget.has_action)}</li>
+                <li>{budgetLine("Action bonus", currentTurnCombatant.action_budget.has_bonus_action)}</li>
+                <li>{budgetLine("Réaction", currentTurnCombatant.action_budget.has_reaction)}</li>
+                <li>{budgetLine("Mouvement", currentTurnCombatant.action_budget.has_movement)}</li>
+              </ul>
+            {:else}
+              <p class="hint">Budget d'action non exposé pour ce combattant.</p>
+            {/if}
+            {#if currentTurnCombatant.concentration_spell_name}
+              <p class="conc-line">
+                Concentration : {currentTurnCombatant.concentration_spell_name}
+                {#if currentTurnCombatant.concentration_spell_id}
+                  <span class="mono">({currentTurnCombatant.concentration_spell_id})</span>
+                {/if}
+              </p>
+            {/if}
+          {:else}
+            <p class="hint">Aucun tour actif.</p>
+          {/if}
+          <div class="stats-placeholder">
+            <span class="soon-chip">À venir</span>
+            <p class="hint">
+              Caractéristiques (FOR, DEX, CON, INT, SAG, CHA) — prévues dans un
+              lot ultérieur.
+            </p>
+          </div>
+        </Panel>
+
+        <Panel title="Actions rapides">
+          {#if combat.status === "active"}
+            <div class="action-block">
+              <h3 class="action-title">Attaque d'arme</h3>
+              <div class="attack-form">
+                <label>
+                  Attaquant
+                  <select bind:value={attackerId}>
+                    {#each Object.keys(combat.combatants) as cid (cid)}
+                      <option value={cid}>{combatantLabel(cid, combat)}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>
+                  Cible
+                  <select bind:value={targetId}>
+                    {#each Object.keys(combat.combatants) as cid (cid)}
+                      <option value={cid}>{combatantLabel(cid, combat)}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label>
+                  Arme
+                  <select bind:value={weaponId}>
+                    {#each WEAPON_IDS as wid (wid)}
+                      <option value={wid}>{wid}</option>
+                    {/each}
+                  </select>
+                </label>
+              </div>
+              <button type="button" class="btn-primary" onclick={launchAttack} disabled={!canAttack}>
+                {loading ? "Attaque…" : "Attaquer"}
+              </button>
+            </div>
+
+            <div class="action-block">
+              <h3 class="action-title">Lancer un sort</h3>
+              {#if castableSpells.length > 0}
+                <div class="spell-actions">
+                  {#each castableSpells as spellId (spellId)}
+                    <button
+                      type="button"
+                      class="btn-primary"
+                      onclick={() => launchSpell(spellId)}
+                      disabled={!canCastSpell}
+                    >
+                      {spellId}
+                    </button>
+                  {/each}
+                </div>
+              {:else if viewer.trim()}
+                {#if combat.viewer?.combatant_id == null}
+                  <p class="hint">Ce viewer ne participe pas à ce combat.</p>
+                {:else if !isViewerTurn}
+                  <p class="hint">
+                    Ce n'est pas le tour de {combatantName(combat.viewer.combatant_id, combat)}
+                    — utilisez « Fin de tour ».
+                  </p>
+                {:else}
+                  <p class="hint">
+                    Aucun sort overlay lançable pour cette fiche (voir la liste ci-dessous).
+                  </p>
+                {/if}
+              {:else}
+                <p class="hint">
+                  Choisissez un viewer (en haut) pour activer les sorts joueur.
+                </p>
+              {/if}
+              <p class="hint">
+                Sorts combat (overlay v1) : <code>hunters_mark</code> rôdeur ·
+                <code>bless</code> clerc · <code>hex</code>. Au tour du viewer,
+                avec le budget requis (<code>shield</code> = réaction, hors panneau).
+              </p>
+            </div>
+
+            <button type="button" disabled title="En développement">
+              Compétences — à venir
+            </button>
+
+            <button
+              type="button"
+              class="btn-primary btn-endturn"
+              onclick={advanceTurn}
+              disabled={!canAdvance}
+            >
+              Fin de tour
+            </button>
+          {:else if combat.status === "preparing"}
+            <p class="hint">Combat en préparation — activez depuis le lobby.</p>
+          {:else}
+            <p class="hint">Combat terminé.</p>
+          {/if}
+        </Panel>
+
+        <Panel title="Journal de combat">
+          {#if journal.length === 0}
+            <p class="hint">Aucune action enregistrée cette session.</p>
+          {:else}
+            <ol class="journal-list">
+              {#each journal as entry (entry.id)}
+                <JournalItem kind={entry.kind} summary={entry.summary} detail={entry.detail} />
+              {/each}
+            </ol>
+          {/if}
+        </Panel>
+      </div>
+    </div>
+
+    <DiceBar />
+  {/if}
 </div>
 
-{#if error}
-  <ErrorAlert {error} />
-{/if}
-
-{#if combat}
-  {@const currentId = combat.current_combatant_id}
-  <section class="hud" aria-live="polite">
-    <header class="hud-header">
-      <span>Statut {combat.status}</span>
-      <span>Round {combat.round_number}</span>
-    </header>
-
-    {#if currentTurnCombatant && currentId}
-      <section class="hud-turn" aria-label="Tour courant">
-        <h2 class="hud-turn-title">
-          Tour — {currentTurnCombatant.display_name}
-        </h2>
-        <div class="hud-turn-stats">
-          <span>{formatHp(currentTurnCombatant)}</span>
-          {#if currentTurnCombatant.ac !== undefined}
-            <span>CA {currentTurnCombatant.ac}</span>
-          {/if}
-        </div>
-        {#if currentTurnCombatant.action_budget}
-          <div class="hud-budget">
-            <span>{budgetLine("Action", currentTurnCombatant.action_budget.has_action)}</span>
-            <span>{budgetLine("Action bonus", currentTurnCombatant.action_budget.has_bonus_action)}</span>
-          </div>
-        {:else}
-          <p class="hint">Budget d'action non exposé pour ce combattant.</p>
-        {/if}
-        {#if currentTurnCombatant.concentration_spell_name}
-          <p class="hud-concentration">
-            Concentration : {currentTurnCombatant.concentration_spell_name}
-            {#if currentTurnCombatant.concentration_spell_id}
-              <span class="mono">({currentTurnCombatant.concentration_spell_id})</span>
-            {/if}
-          </p>
-        {/if}
-      </section>
-    {/if}
-
-    <section class="hud-initiative" aria-label="Ordre d'initiative">
-      <h2 class="hud-section-title">Initiative</h2>
-      {#if combat.initiative_order.length === 0}
-        <p class="hint">Ordre vide.</p>
-      {:else}
-        <ol class="hud-initiative-list">
-          {#each combat.initiative_order as cid (cid)}
-            {@const c = combat.combatants[cid]}
-            <li class="hud-initiative-item" class:is-turn={cid === currentId} class:is-inactive={c && !c.is_active}>
-              <div class="hud-initiative-head">
-                <strong>{c?.display_name ?? cid}</strong>
-                {#if cid === currentId}
-                  <span class="hud-turn-badge">tour</span>
-                {/if}
-              </div>
-              {#if c}
-                <div class="hud-initiative-meta">
-                  <span>{formatHp(c)}</span>
-                  {#if c.ac !== undefined}
-                    <span>CA {c.ac}</span>
-                  {/if}
-                  {#if c.concentration_spell_name}
-                    <span>Conc. {c.concentration_spell_name}</span>
-                  {/if}
-                  {#if c.character_id}
-                    <a
-                      href="/character/{encodeURIComponent(c.character_id)}"
-                      use:link
-                      class="inline-link"
-                    >fiche</a>
-                  {/if}
-                </div>
-              {/if}
-            </li>
-          {/each}
-        </ol>
-      {/if}
-    </section>
-
-    {#if combat.active_effects.length > 0}
-      <section class="hud-effects" aria-label="Effets actifs">
-        <h2 class="hud-section-title">Effets actifs</h2>
-        <ul class="hud-effects-list">
-          {#each combat.active_effects as effect (effect.effect_id + effect.target_id + effect.applied_at_round)}
-            <li>
-              <span class="mono">{effect.effect_id}</span>
-              → {effect.target_id}
-              <span class="hint">(round {effect.applied_at_round}, {effect.expiry_mode})</span>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
-
-    {#if combat.status === "active"}
-      <section class="hud-actions">
-        <h2 class="hud-section-title">Actions</h2>
-        <div class="attack-form">
-          <label>
-            Attaquant
-            <select bind:value={attackerId}>
-              {#each Object.keys(combat.combatants) as cid (cid)}
-                <option value={cid}>{combatantLabel(cid, combat)}</option>
-              {/each}
-            </select>
-          </label>
-          <label>
-            Cible
-            <select bind:value={targetId}>
-              {#each Object.keys(combat.combatants) as cid (cid)}
-                <option value={cid}>{combatantLabel(cid, combat)}</option>
-              {/each}
-            </select>
-          </label>
-          <label>
-            Arme
-            <select bind:value={weaponId}>
-              {#each WEAPON_IDS as wid (wid)}
-                <option value={wid}>{wid}</option>
-              {/each}
-            </select>
-          </label>
-        </div>
-        <button type="button" onclick={launchAttack} disabled={!canAttack}>
-          {loading ? "Attaque…" : "Attaquer"}
-        </button>
-
-        {#if castableSpells.length > 0}
-          <div class="spell-actions">
-            {#each castableSpells as spellId (spellId)}
-              <button
-                type="button"
-                onclick={() => launchSpell(spellId)}
-                disabled={!canCastSpell}
-              >
-                {spellId}
-              </button>
-            {/each}
-          </div>
-        {:else if viewer.trim()}
-          <div class="spell-hint-detail">
-            {#if combat.viewer?.combatant_id == null}
-              <p class="hint">Ce viewer ne participe pas à ce combat.</p>
-            {:else if !isViewerTurn}
-              <p class="hint">
-                Ce n'est pas le tour de {combatantName(combat.viewer.combatant_id, combat)}
-                — utilisez « Tour suivant ».
-              </p>
-            {:else}
-              <p class="hint">
-                Aucun sort overlay lançable pour cette fiche (voir la liste ci-dessus).
-              </p>
-            {/if}
-          </div>
-        {:else}
-          <p class="hint">
-            Choisissez un viewer dans la liste pour activer les sorts joueur.
-          </p>
-        {/if}
-      </section>
-    {:else if combat.status === "preparing"}
-      <p class="hint">Combat en préparation — activez depuis le lobby.</p>
-    {/if}
-
-    <section class="hud-journal" aria-label="Journal de session">
-      <h2 class="hud-section-title">Journal</h2>
-      {#if journal.length === 0}
-        <p class="hint">Aucune action enregistrée cette session.</p>
-      {:else}
-        <ol class="hud-journal-list">
-          {#each journal as entry (entry.id)}
-            <li class="hud-journal-item" class:spell={entry.kind === "spell"}>
-              <span class="hud-journal-kind">{entry.kind === "attack" ? "⚔" : "✨"}</span>
-              <div>
-                <div>{entry.summary}</div>
-                <div class="hint">{entry.detail}</div>
-              </div>
-            </li>
-          {/each}
-        </ol>
-      {/if}
-    </section>
-  </section>
-{/if}
-
 <style>
-  .hud {
+  .combat-screen {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    margin-top: 1rem;
+    gap: var(--space-md);
   }
 
-  .hud-header {
+  /* ---- barre supérieure ---- */
+
+  .topbar {
     display: flex;
-    gap: 1.25rem;
-    font-weight: 600;
-  }
-
-  .hud-turn {
-    border: 2px solid var(--current-border);
-    background: var(--current-bg);
-    border-radius: var(--radius-lg, 8px);
-    padding: 0.85rem 1rem;
-  }
-
-  .hud-turn-title {
-    margin: 0 0 0.35rem;
-    font-size: 1.05rem;
-  }
-
-  .hud-turn-stats,
-  .hud-budget,
-  .hud-initiative-meta {
-    display: flex;
+    align-items: center;
+    gap: var(--space-md) var(--space-lg);
     flex-wrap: wrap;
-    gap: 0.65rem 1rem;
-    font-size: 0.95rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
   }
 
-  .hud-budget {
-    margin-top: 0.35rem;
-  }
-
-  .hud-concentration {
-    margin: 0.5rem 0 0;
-    font-size: 0.95rem;
-  }
-
-  .hud-section-title {
-    font-size: 0.95rem;
-    margin: 0 0 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    opacity: 0.85;
-  }
-
-  .hud-initiative-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
+  .topbar-brand {
     display: flex;
-    flex-direction: column;
-    gap: 0.45rem;
+    align-items: baseline;
+    gap: 0.5rem;
+    min-width: 0;
   }
 
-  .hud-initiative-item {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md, 6px);
-    padding: 0.55rem 0.75rem;
-    background: var(--color-bg-elevated, #141414);
+  .brand {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    white-space: nowrap;
   }
 
-  .hud-initiative-item.is-turn {
-    border-color: var(--current-border);
-    background: var(--current-bg);
+  .sep {
+    color: var(--color-text-muted);
   }
 
-  .hud-initiative-item.is-inactive {
-    opacity: 0.55;
+  .encounter {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    white-space: nowrap;
   }
 
-  .hud-initiative-head {
+  .soon-chip {
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    white-space: nowrap;
+  }
+
+  .topbar-pills {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
-  .hud-turn-badge {
-    font-size: 0.75rem;
-    font-weight: 700;
+  .pill {
+    font-size: 0.8rem;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-border-default);
+    background: var(--color-bg-panel);
+    white-space: nowrap;
+  }
+
+  .pill-accent {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    font-weight: 600;
     text-transform: uppercase;
-    padding: 0.1rem 0.4rem;
-    border-radius: var(--radius-sm, 4px);
-    background: var(--current-border);
-    color: var(--color-accent-text, #0a0a0a);
+    letter-spacing: 0.04em;
   }
 
-  .hud-effects-list,
-  .hud-journal-list {
+  .pill-muted {
+    color: var(--color-text-muted);
+  }
+
+  .topbar-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .topbar-controls button {
+    padding: 0.4rem 0.7rem;
+    font-size: 0.85rem;
+  }
+
+  .viewer-control {
+    margin: 0;
+    min-width: 15rem;
+  }
+
+  .viewer-label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-muted);
+    margin-bottom: 0.15rem;
+  }
+
+  .viewer-control select,
+  .viewer-control input {
+    margin-top: 0;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+  }
+
+  .topbar-hint {
+    margin: -0.35rem 0 0 0.2rem;
+  }
+
+  /* ---- grille trois colonnes ---- */
+
+  .hud-grid {
+    display: grid;
+    grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(295px, 340px);
+    gap: var(--space-md);
+    align-items: start;
+  }
+
+  .col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-width: 0;
+  }
+
+  .col-center {
+    align-self: stretch;
+  }
+
+  /* ---- initiative ---- */
+
+  .init-track {
     list-style: none;
     margin: 0;
     padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
-  .hud-effects-list li {
-    margin-bottom: 0.35rem;
-    font-size: 0.92rem;
-  }
-
-  .hud-actions {
-    border-top: 1px solid var(--border);
-    padding-top: 0.75rem;
-  }
-
-  .hud-journal-list {
+  .init-token {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.2rem;
+    width: 4.2rem;
+    padding: 0.4rem 0.2rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-panel);
+    text-align: center;
   }
 
-  .hud-journal-item {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.5rem 0.65rem;
-    border-radius: var(--radius-md, 6px);
-    border: 1px solid var(--border);
-    font-size: 0.92rem;
-    background: var(--color-bg-elevated, #141414);
-  }
-
-  .hud-journal-item.spell {
+  .init-token.is-turn {
     border-color: var(--color-accent);
     background: var(--color-accent-muted);
   }
 
-  .hud-journal-kind {
-    flex-shrink: 0;
-    width: 1.25rem;
-    text-align: center;
+  .init-token.is-inactive {
+    opacity: 0.5;
+  }
+
+  .init-avatar {
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border-default);
+  }
+
+  .init-token.is-turn .init-avatar {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+
+  .init-name {
+    font-size: 0.68rem;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .init-score {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-accent);
+  }
+
+  /* ---- effets ---- */
+
+  .effects-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.88rem;
+  }
+
+  /* ---- fiche active ---- */
+
+  .active-stats {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+
+  .budget-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.25rem 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  .conc-line {
+    margin: 0;
+    font-size: 0.88rem;
+  }
+
+  .stats-placeholder {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--color-border-default);
+  }
+
+  .stats-placeholder .hint {
+    flex: 1;
+  }
+
+  /* ---- actions rapides ---- */
+
+  .action-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .action-title {
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+  }
+
+  .attack-form {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .attack-form label {
+    margin-bottom: 0;
+    font-size: 0.82rem;
+  }
+
+  .btn-primary {
+    background: var(--color-accent);
+    color: var(--color-accent-text);
+    border-color: var(--color-accent);
+    font-weight: 600;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+  }
+
+  .btn-endturn {
+    width: 100%;
+  }
+
+  .spell-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* ---- journal ---- */
+
+  .journal-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 24rem;
+    overflow-y: auto;
+  }
+
+  /* ---- responsive ---- */
+
+  @media (max-width: 1080px) {
+    .hud-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .col-center {
+      order: -1;
+    }
+
+    .topbar-controls {
+      margin-left: 0;
+      width: 100%;
+    }
   }
 </style>
