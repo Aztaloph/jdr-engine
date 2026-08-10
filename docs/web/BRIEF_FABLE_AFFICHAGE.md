@@ -1,409 +1,426 @@
-# Brief — refonte visuelle HUD combat (charte Figma)
+# Brief Fable 5 — refonte visuelle HUD combat
 
 | Attribut | Valeur |
 |---|---|
-| **Statut** | Prompt de référence pour agent d'implémentation |
-| **Date** | 2026-08-11 |
-| **Épic** | Refonte visuelle du HUD combat vers la charte cible, **à données constantes** |
-| **Maquette** | Figma — HUD combat trois colonnes + landing (landing = horizon, hors lot) |
-| **Découpe** | **Obligatoire** — sous-lots A → B → C, **trois commits** ; B interdit avant validation visuelle de A (§ Découpe obligatoire) |
+| **Statut** | Brief d'implémentation visuelle — prêt pour agent Fable 5 |
+| **Date** | 2026-08-11 (révision architecte) |
+| **Épic** | Transformer l'affichage du HUD combat pour qu'il ressemble à la maquette Figma, **sans changer le comportement ni les contrats** |
+| **Agent cible** | Fable 5 (implémentation autonome) |
 | **Références** | [`docs/api/CONTRAT.md`](../api/CONTRAT.md) §2.8–2.9 · [`ADR-007`](../adr/ADR-007-stack-client-web.md) · `web/src/lib/screens/CombatScreen.svelte` |
 
 ---
 
-## Mission en une phrase
+## 1. Mission exacte
 
-Habiller et restructurer l'écran combat Svelte existant selon la direction artistique sombre / ambre et un layout trois colonnes proche de la maquette Figma, **sans ajouter de donnée, d'appel API ni de logique métier**.
+**Prendre le HUD combat Svelte existant, conserver intégralement son comportement et ses contrats API, et transformer son affichage pour qu'il ressemble réellement à la maquette Figma du HUD combat (layout trois colonnes, charte sombre / ambre, hiérarchie visuelle).**
 
-### Ce que ce lot n'est pas
+Ce n'est **pas** une mission d'implémentation backend, ni de nouvelles fonctionnalités de jeu, ni de landing page.
 
-- Ce n'est **pas** la carte tactique, la landing publique, le temps réel, ni une refonte fonctionnelle du combat.
-- Ce n'est **pas** un lot moteur : **aucun fichier Python**, **aucune modification** de `interfaces/api/static/`.
-- Ce n'est **pas** l'ajout de champs inventés (classe/niveau sur carte combattant, libellés d'effets traduits, timer de session, bassin de dés, etc.) faute de les trouver dans le DTO combat.
+**Principe directeur** :
+
+| Priorité | Règle |
+|---|---|
+| 1 | Contrats API et données réellement disponibles |
+| 2 | Contraintes d'architecture du projet (`AGENTS.md`, ADR) |
+| 3 | Fonctionnalités actuellement fonctionnelles (à ne pas casser) |
+| 4 | Maquette Figma pour la **présentation visuelle** |
+| 5 | Hypothèses / embellissements — **interdits** |
+
+**Corollaire** : la maquette **ne justifie jamais** d'inventer une donnée ou une fonctionnalité. **Inversement**, l'absence d'une fonctionnalité backend **n'empêche pas** de construire sa **place visuelle** avec un placeholder explicite.
 
 ---
 
-## État de départ
+## 2. Références visuelles
 
-### Stack et lancement
-
-| Élément | État |
+| Référence | Rôle dans ce lot |
 |---|---|
-| Client | SPA **Svelte 5 + Vite + TypeScript**, port **5173**, proxy `/v1` → `:8000` |
-| Routage | `svelte-spa-router` (hash) — `App.svelte`, `web/src/lib/navigation.ts` |
-| Styles globaux | `web/src/app.css` — thème **système clair/sombre**, accent **bleu** (`#3b82f6`), `#app` **max-width 52rem** (layout mono-colonne) |
-| Tests moteur | **945 tests OK** mesurés le 2026-08-11 (`python -m unittest discover -s tests -p "test_*.py" -q`) — lot **sans impact** attendu sur ce chiffre |
-
-### Écrans concernés
-
-| Fichier | Rôle actuel |
-|---|---|
-| `web/src/lib/screens/CombatScreen.svelte` | **Cible principale** — HUD v1 fonctionnel (~690 lignes, styles scoped) |
-| `web/src/lib/screens/LobbyScreen.svelte` | Création / activation / combats ouverts — cohérence visuelle minimale seulement |
-| `web/src/lib/screens/CharacterScreen.svelte` | Fiche minimal — cohérence visuelle minimale seulement |
-| `web/src/App.svelte` | Nav globale — hériter tokens (fond, liens, boutons) |
-| `web/src/lib/components/ErrorAlert.svelte` | Erreurs API / réseau — conserver le comportement, appliquer la charte |
-
-### Ce qui marche déjà sur `CombatScreen` (ne pas régresser)
-
-Lecture `GET /v1/combats/{id}?viewer=` et mutations existantes :
-
-| Fonctionnalité | Implémentation actuelle |
-|---|---|
-| Sélecteur **viewer** | Dropdown participants ou saisie `character_id` ; met à jour l'URL hash |
-| En-tête combat | `status`, `round_number` |
-| **Tour courant** | `current_combatant_id` → PV, CA, budget action / action bonus, concentration |
-| **Initiative** | Liste ordonnée `initiative_order[]` — surlignage tour, `is_active`, lien fiche |
-| **Effets actifs** | `active_effects[]` (ids bruts + métadonnées) |
-| **Actions** | Attaque (attaquant, cible, arme `WEAPON_IDS`), sorts depuis `viewer.castable_spells[]`, messages d'aide si hors tour / pas de sorts |
-| **Journal session** | Tableau **client-side** alimenté après attaque (`WeaponAttackResult`) et cast — **pas** de log serveur |
-| Barre d'actions | Recharger, tour suivant, clôturer → lobby |
-| Erreurs | `ErrorAlert` — 502 proxy → « API injoignable » |
-
-### Types TypeScript (miroir DTO)
-
-| Fichier | Source Python |
-|---|---|
-| `web/src/lib/types/combat.ts` | `combat_state_to_dict` |
-| `web/src/lib/types/attack.ts` | `weapon_attack_result_to_dict` |
-| `web/src/lib/types/sheet.ts` | `character_sheet_to_dict` (+ overlay §2.6) |
-| `web/src/lib/types/character.ts` | `GET /v1/characters` (liste lobby uniquement) |
-
-### Écarts constatés entre la demande initiale et le code réel
-
-| Point | Constat |
-|---|---|
-| Référence « 943 tests » | Dépôt mesuré à **945** tests OK au 2026-08-11 — utiliser la mesure à jour pour les rapports de lot. |
-| Layout maquette vs `#app` | `app.css` limite la largeur à **52rem** et centre une colonne — **incompatible** avec un HUD trois colonnes pleine largeur ; levée ou override combat requis. |
-| Accent couleur | Code actuel = **bleu** ; maquette = **ambre** — changement voulu, pas une régression. |
-| Grille caractéristiques (colonne droite maquette) | Présente sur **`CharacterScreen`** via `GET …/sheet`, **absente** de `CombatScreen` (pas d'appel fiche). Ne pas l'ajouter sans nouvel appel API (hors périmètre). |
-| `initiative_total` | Exposé conditionnellement sur le combattant (CONTRAT §2.8) mais **non affiché** aujourd'hui — affichage autorisé si présent, interdit de l'inventer. |
-| Journal avec horodatage | Maquette Figma montre des timestamps ; le journal actuel **n'en a pas** (construction locale sans horloge) — ne pas simuler d'heure serveur. |
+| **Maquette Figma — HUD combat** | **Cible visuelle principale** — layout 3 colonnes, en-tête, cartes combattants, initiative horizontale, zone carte, panneau actions, journal, pied de page dés |
+| **Maquette Figma — landing page** | **Horizon produit uniquement** — extraire tokens communs (palette, ambre, typo, surfaces) ; **ne pas implémenter** la landing |
+| **Capture / état actuel de l'app** | Point de départ fonctionnel — mono-colonne, fieldsets, HUD v1 opérationnel |
+| **Commit `fc66507` (sous-lot A)** | Tokens déjà livrés — `web/src/lib/styles/tokens.css`, charte sombre/ambre sur les 3 écrans ; **ne pas repartir de zéro** |
 
 ---
 
-## Inventaire données maquette ↔ DTO
+## 3. État réel du code (vérifié 2026-08-11)
 
-Légende : **Existe** = affichable depuis le DTO combat ou la réponse d'action déjà consommée ; **Partiel** = donnée incomplète, filtrée par viewer, ou hors agrégat combat ; **Absent** = pas dans l'API v1 / exclus du lot.
+### Stack
 
-### En-tête global (barre supérieure maquette)
+| Élément | État réel |
+|---|---|
+| Client | Svelte 5 + Vite + TS, port **5173**, proxy `/v1` → `:8000` |
+| Routage | Hash — `#/lobby`, `#/combat/{id}?viewer=`, `#/character/{id}` |
+| Tokens | **`web/src/lib/styles/tokens.css`** — ambre `#f59e0b`, fond `#0a0a0a`, Inter + Playfair (Google Fonts dans `web/index.html`) |
+| Layout app | `#app` → `max-width: var(--layout-max-width)` avec `--layout-max-width: min(80rem, 100%)` — **pas** le 52rem d'origine, mais le HUD 3 colonnes peut nécessiter **pleine largeur viewport** sur la route combat |
+| Tests moteur | **945 tests OK** — lot front sans toucher Python |
 
-| Bloc visuel maquette | Donnée | Statut | Source / remarque |
-|---|---|---|---|
-| Logo / titre produit « JDR ENGINE » | — | **Absent** (UI statique) | Texte de marque — pas de champ API ; libellé fixe autorisé |
-| Titre campagne (« La Crypte des Ombres ») | — | **Absent** | Aucun `campaign_name` / `encounter_name` dans `CombatState` |
-| Pilule **ROUND** *n* | `round_number` | **Existe** | Entier ; `0` en `preparing` |
-| Pilule **Tour de :** *nom* | `current_combatant_id` + `combatants[id].display_name` | **Existe** | Ne pas déduire le tour via `turn_index` (CONTRAT §2.8) |
-| Timer session (ex. `02:45:12`) | — | **Absent** | Non-objectif explicite |
-| Statut « MJ en ligne » | — | **Absent** | Non-objectif ; pas d'auth / présence |
+### Fichiers clés
+
+| Fichier | Rôle |
+|---|---|
+| `web/src/lib/screens/CombatScreen.svelte` | **Cible** — ~695 lignes, logique + template mono-colonne + styles scoped |
+| `web/src/lib/api/combat.ts` | `fetchCombatState`, `advanceCombatTurn`, `postWeaponAttack`, `postCombatCast`, `closeCombat` |
+| `web/src/lib/types/combat.ts` | Miroir `combat_state_to_dict` |
+| `web/src/lib/types/attack.ts` | `WEAPON_IDS`, `WeaponAttackResult` |
+| `web/src/app.css` | Styles globaux + charte A |
+| `web/src/App.svelte` | Nav minimale (Lobby · Combat id · Fiche id) |
+| `web/src/lib/components/ErrorAlert.svelte` | Erreurs API / réseau |
+
+### Comportement fonctionnel à préserver (inventaire code)
+
+Tout ceci **doit continuer à marcher** après la refonte visuelle :
+
+| Zone | Comportement |
+|---|---|
+| **Viewer** | Select ou input ; sync URL `?viewer=` ; filtre sorts et visibilité |
+| **Chargement** | `GET /v1/combats/{id}?viewer=` au mount et reload |
+| **En-tête données** | `status`, `round_number`, tour via `current_combatant_id` |
+| **Tour courant** | PV, CA, budget action/bonus, concentration (si clés présentes) |
+| **Initiative** | Liste `initiative_order[]`, surbrillance tour, `is_active`, lien `#/character/{id}` |
+| **Effets actifs** | Liste `active_effects[]` (ids bruts) |
+| **Attaque** | Selects attaquant / cible / arme (`WEAPON_IDS`) + `POST …/attack` + journal client |
+| **Sorts** | Boutons depuis **`viewer.castable_spells[]` uniquement** + `POST …/cast` |
+| **Aide sorts** | Messages hors tour / pas de viewer / pas de sorts — conserver la logique |
+| **Journal** | Tableau **client-side** post-attaque / post-cast — pas de log serveur |
+| **Actions globales** | Recharger, tour suivant (`advance-turn`), clôturer → lobby |
+| **Erreurs** | `ErrorAlert`, dont 502 « API injoignable » |
+
+### Écart visuel actuel vs maquette
+
+| Aspect | Actuel | Maquette |
+|---|---|---|
+| Structure | Mono-colonne, fieldsets, liste verticale | 3 colonnes + en-tête + pied de page |
+| Combattants | Items dans liste initiative | Cartes groupe à gauche + bandeau initiative |
+| Carte | Absente | Panneau central dominant |
+| Actions | Formulaire + boutons | Boutons « Actions rapides » + panneaux |
+| Caractéristiques | Absentes du combat | Grille 6 stats à droite |
+| Dés | Absents | Barre d4–d20 + historique |
+| En-tête | Titre « Combat » + hint | Barre JDR ENGINE + pills ROUND / tour / timer / MJ |
+
+---
+
+## 4. Classification obligatoire — quatre niveaux de rendu
+
+Chaque élément de la maquette doit être classé **avant** implémentation. Fable 5 applique la règle correspondante sans exception.
+
+| Niveau | Signification | Action Fable |
+|---|---|---|
+| **① Fonctionnel maintenant** | Donnée + interaction déjà branchées | Rendre visuellement proche de Figma **et** garder le comportement |
+| **② Affichage données disponibles** | Donnée partielle ou filtrée par viewer | Afficher **si clé présente** ; masquer si absente — **jamais** de valeur par défaut fictive |
+| **③ Placeholder visuel** | Présent dans Figma, absent côté backend | Construire le **panneau / bouton / zone** ; marquer **« EN DÉVELOPPEMENT »**, **« À VENIR »** ou libellé équivalent ; **disabled** si bouton |
+| **④ Hors périmètre** | Ne doit pas exister dans ce lot | Ne pas coder — pas même un placeholder si cela implique une fausse dynamique (ex. timer qui tick) |
+
+### Convention placeholders (niveau ③)
+
+- Texte court, visible, cohérent charte : `EN DÉVELOPPEMENT`, `À VENIR`, `CARTE TACTIQUE — EN DÉVELOPPEMENT`.
+- Style : bordure pointillée ou fond atténué, typo `--color-text-muted`, badge discret.
+- **Interdit** : fausses valeurs (PV inventés, jetons sur fausse grille, timer `02:45:12` qui avance, « MJ en ligne » vert simulé).
+
+---
+
+## 5. Mapping maquette → rendu (tableau de décision)
+
+### En-tête HUD
+
+| Élément Figma | Niveau | Source / traitement |
+|---|---|---|
+| Logo « JDR ENGINE » | ③ ou statique | Texte UI fixe autorisé (marque) |
+| Titre campagne | ③ | Pas de `campaign_name` — zone placeholder **« Campagne — à venir »** ou titre neutre `Rencontre {combat_id}` |
+| Pilule **ROUND** *n* | ① | `round_number` |
+| Pilule **Tour de :** *nom* | ① | `current_combatant_id` + `display_name` |
+| Timer session | ④ | Hors périmètre — **ne pas afficher** de fausse horloge |
+| « MJ en ligne » | ④ | Hors périmètre |
 
 ### Colonne gauche — groupe & initiative
 
-| Bloc visuel maquette | Donnée | Statut | Source / remarque |
-|---|---|---|---|
-| Portrait / avatar circulaire | — | **Absent** | Non-objectif ; `image_url` existe sur fiche personnage mais **pas** sur `Combatant` |
-| Nom du personnage | `display_name` | **Existe** | Toujours |
-| Sous-titre classe + niveau (ex. « Mage — Niveau 5 ») | — | **Absent** du DTO combat | `class_id` / `level` existent sur **`CharacterListEntry`** (lobby) et **`CharacterSheet`** (autre route) — **ne pas fetcher** la fiche depuis le HUD sans accord API |
-| Badge **CA** | `ac` | **Partiel** | Présent seulement vue MJ ou combattant « soi » ; **omis** (clé absente) pour les autres — ne jamais afficher « 0 » par défaut |
-| Barre **PV** *courant/max* | `hp_current`, `hp_max` | **Partiel** | Même règle de visibilité que CA |
-| Badges d'état lisibles (« BÉNI », « EMPOISONNÉ »…) | `active_effects[]` | **Partiel** | Seul `effect_id` (opaque, pas de libellé FR — CONTRAT §2.8) ; afficher l'**id** ou une dérivation **cosmétique non traduite** (ex. `bless` → badge `bless`), **pas** de mapping inventé vers des états non portés par le moteur |
-| Carte combattant actif (bordure ambre) | `current_combatant_id` | **Existe** | Comparaison d'id |
-| Combattant inactif / retiré (atténué) | `is_active` | **Existe** | Déjà utilisé (classe `is-inactive`) |
-| Lien vers fiche | `character_id` | **Existe** | Route `#/character/{id}` déjà en place |
-| Bandeau **ordre d'initiative** (jetons + score) | `initiative_order`, `display_name`, `initiative_total` | **Partiel** | Ordre et noms : oui ; **`initiative_total`** absent avant activation ou masqué — afficher seulement si clé présente |
-| Surbrillance initiative = tour courant | `current_combatant_id` | **Existe** | — |
+| Élément Figma | Niveau | Source / traitement |
+|---|---|---|
+| Cartes **Membres du groupe** | ①② | `combatants` + `initiative_order` ; nom `display_name` ; PV/CA **②** ; barre PV **②** si `hp_current` **et** `hp_max` ; bordure ambre si `current_combatant_id` |
+| Avatar circulaire | ③ | Placeholder initiales ou silhouette neutre — **pas** d'`image_url` fetch |
+| Sous-titre « Mage — Niveau 5 » | ③ | **Pas** de fetch fiche — ligne placeholder **« Classe — à venir »** ou omise |
+| Badges « BÉNI », « EMPOISONNÉ » | ② | Uniquement `effect_id` sur `active_effects[]` ciblant ce combattant — afficher l'**id** (`bless`, `hex`…), **pas** de traduction FR inventée |
+| Bandeau **initiative** horizontal | ①② | Jetons ordonnés ; score si `initiative_total` **présent** ; surbrillance tour |
+| Lien fiche | ① | `#/character/{character_id}` |
 
-### Colonne centrale — carte / plan
+### Colonne centrale — carte
 
-| Bloc visuel maquette | Donnée | Statut | Source / remarque |
-|---|---|---|---|
-| Plan de salle, grille, jetons, positions | — | **Absent** | Moteur C4 inerte ; **placeholder** obligatoire, libellé explicite (ex. « Carte — non implémentée ») |
-| Nom du plan (« Les Oubliettes… ») | — | **Absent** | — |
-| Toggles vision / mesure / grille | — | **Absent** | Non-objectifs |
+| Élément Figma | Niveau | Source / traitement |
+|---|---|---|
+| Plan / grille / jetons | ③ | Panneau central **« CARTE TACTIQUE — EN DÉVELOPPEMENT »** — pas de fausse carte |
+| Nom du plan | ③ | Sous-titre placeholder ou omis |
+| Toggles vision / mesure / grille | ③ | Boutons **disabled** + badge « à venir » **ou** omis — pas de faux état actif |
 
 ### Colonne droite — fiche active, actions, journal
 
-| Bloc visuel maquette | Donnée | Statut | Source / remarque |
-|---|---|---|---|
-| Grille **6 caractéristiques** (FOR, DEX…) | — | **Absent** de l'agrégat combat | Disponible sur **`CharacterSheet`** via autre écran — **ne pas** ajouter `GET …/sheet` dans ce lot |
-| Nom du personnage actif | `display_name` du tour ou du viewer | **Existe** | Tour courant : `current_combatant_id` ; viewer : `viewer.combatant_id` |
-| Bouton **Attaque d'arme** | UI + `POST …/attack` | **Existe** | Formulaire attaquant / cible / `weapon_id` — conserver les champs |
-| Bouton **Lancer un sort** | `viewer.castable_spells[]` + `POST …/cast` | **Existe** | Liste **serveur** ; ids bruts (`hunters_mark`, `bless`, `hex`) — pas de catalogue en dur côté client |
-| Bouton **Compétences** | — | **Absent** | Pas d'endpoint compétences en combat v1 |
-| Bouton **Fin de tour** | `POST …/advance-turn` | **Existe** | Bouton actuel « Tour suivant » |
-| Budget d'action (action / bonus / réaction / mouvement) | `action_budget` | **Partiel** | Objet optionnel ; champs `has_action`, `has_bonus_action`, `has_reaction`, `has_movement` — aujourd'hui seuls action et bonus action sont affichés ; **étendre l'affichage** autorisé si le serveur expose le budget, sans recalcul client |
-| Concentration | `concentration_spell_name`, `concentration_spell_id` | **Partiel** | Présents si applicable et visibles selon viewer |
-| **Journal de combat** — texte narratif | — | **Absent** (serveur) | Pas de flux narration API |
-| **Journal** — action + résultat | Journal client + blocs attaque | **Partiel** | Résumés construits localement depuis `WeaponAttackResult` et état post-cast ; pas de relecture GET pour animer |
-| **Journal** — horodatage | — | **Absent** | Option : horodatage **local** `Date` au moment du push — cosmétique, pas une donnée DTO |
-| Encarts « Dégâts : 28 (8d6) » stylisés | `damage` dans réponse attaque | **Partiel** | Disponible au moment de l'attaque ; journal actuel résume en texte — enrichissement visuel OK, contenu inchangé |
+| Élément Figma | Niveau | Source / traitement |
+|---|---|---|
+| Grille 6 caractéristiques | ③ | **Ne pas** appeler `GET …/sheet` — panneau **« Fiche active — caractéristiques à venir »** ou 6 cellules vides avec label `--` |
+| Nom personnage actif | ① | Combattant du tour ou du viewer selon contexte maquette |
+| **Attaque d'arme** | ① | Conserver selects attaquant/cible/arme + `POST …/attack` — présentation maquette (bouton + panneau dépliable) **autorisée** |
+| **Lancer un sort** | ① | Boutons depuis `viewer.castable_spells[]` + `POST …/cast` |
+| **Compétences** | ③ | Bouton visible **disabled** + « à venir » |
+| **Fin de tour** | ① | `advanceCombatTurn` — libellé maquette autorisé |
+| Budget / concentration | ② | Afficher si `action_budget` / `concentration_*` présents |
+| **Journal** | ① | Contenu journal client existant — mise en forme maquette |
+| Texte narratif RP | ④ | Pas de fausse narration serveur |
+| Horodatage journal | ③ optionnel | Horodatage **local** au push = cosmétique acceptable ; **pas** d'heure serveur simulée |
 
 ### Pied de page — bassin de dés
 
-| Bloc visuel maquette | Donnée | Statut | Source / remarque |
-|---|---|---|---|
-| Boutons d4–d20 | — | **Absent** | Non-objectif ; pas de source API |
-| Historique de jets | — | **Absent** | Non-objectif |
-| Toggles torche / grille | — | **Absent** | Non-objectif |
-
-### Données combat présentes au DTO mais absentes de la maquette / UI actuelle
-
-| Champ | Statut | Remarque |
+| Élément Figma | Niveau | Source / traitement |
 |---|---|---|
-| `combat_id` | **Existe** | Affiché en hint — conserver accessibilité debug |
-| `status` | **Existe** | `preparing` / `active` / `ended` |
-| `ruleset_id` | **Existe** | Peut rester en hint discret |
-| `turn_index` | **Existe** | **Ne pas** l'utiliser pour l'affichage tour (CONTRAT) |
-| `started_at`, `ended_at` | **Existe** | ISO 8601 — affichage optionnel discret ; pas de timer dérivé imposé |
-| `viewer.character_id`, `viewer.combatant_id` | **Existe** | Contexte viewer / sorts |
-| `kind` sur combattant | **Existe** | `"player_character"` seule v1 — pas utile visuellement |
-| Liste armes | `WEAPON_IDS` client | **Partiel** | Liste **fermée documentée** CONTRAT §10.5 — **ne pas** élargir ; pas un catalogue API |
+| Boutons d4–d20 | ③ | Barre visuelle + boutons **disabled** + label **« Bassin de dés — en développement »** |
+| Historique de jets | ③ | Zone placeholder ou message « à venir » |
+| Toggles torche / grille | ③ | Disabled ou omis |
 
-### Landing page (maquette séparée)
+### Landing page
 
-| Bloc | Statut |
+| Élément | Niveau |
 |---|---|
-| Hero, features, pricing, footer | **Absent / hors périmètre** — horizon produit, non traité |
+| Toute la landing | ④ — hors lot |
 
 ---
 
-## Périmètre inclus
+## 6. Pièges — ce qui pousserait Fable à déraper (interdit)
 
-1. **Design tokens CSS** dans un fichier dédié réutilisable (proposition : `web/src/lib/styles/tokens.css` importé depuis `app.css`) :
-   - Palette sombre (fonds `#0a0a0a`–`#1a1a1a`, surfaces cartes, bordures subtiles)
-   - Accent **ambre** (`#f59e0b` ou dérivés cohérents avec la maquette)
-   - Typographie : serif display pour titres (ex. **Playfair Display** ou fallback `Georgia`), sans-serif corps (ex. **Inter** / `system-ui`)
-   - Espacements, rayons (`6px`–`8px`), ombres légères, états hover/focus/disabled
-   - Variables sémantiques (`--color-accent`, `--surface-panel`, `--text-muted`, `--state-success`, `--state-danger`, etc.)
-
-2. **Layout multi-colonnes** sur `CombatScreen`, proche de la maquette :
-   - **Gauche** : liste combattants + initiative (contenu actuel regroupé)
-   - **Centre** : placeholder carte **visiblement identifié**
-   - **Droite** : tour / actions / journal
-   - **En-tête** : statut, round, tour courant, actions globales (recharger, clôturer)
-   - **Responsive dégradé** : empilement vertical acceptable &lt; ~1024px ; pas de pixel-perfect mobile exigé
-
-3. **Composants Svelte extraits** (dossier proposé : `web/src/lib/components/combat/`) :
-   - `CombatantCard.svelte` — nom, PV/CA si présents, effets ciblant ce combattant (filtrage `active_effects[].target_id`), état tour/inactif
-   - `Panel.svelte` — carte à bordure (titre, slot contenu)
-   - `StatusBadge.svelte` — badge compact (`effect_id`, « tour », etc.)
-   - `JournalEntry.svelte` — entrée attaque / sort (summary + detail existants)
-
-4. **Application charte** :
-   - `CombatScreen.svelte` — refonte structure + styles ; logique `<script>` inchangée sauf extraction présentation
-   - **Cohérence minimale** `LobbyScreen`, `CharacterScreen`, `App.svelte`, `ErrorAlert` : fond sombre, typo, boutons primaires/secondaires — **sans refonte de structure** des formulaires lobby/fiche
-   - Retirer ou migrer les styles combat dupliqués (scoped `CombatScreen` → tokens + composants)
-
-5. **Placeholder carte** : zone centrale non cliquable, message explicite + style « panneau vide » (pas d'image de carte empruntée à la maquette si asset non livré — dégradé / motif neutre suffit).
+| Piège | Pourquoi c'est interdit | Alternative |
+|---|---|---|
+| `GET /v1/characters/{id}/sheet` pour remplir FOR/DEX | Appel API **nouveau** dans ce lot ; données hors agrégat combat | Placeholder panneau fiche |
+| `GET /v1/characters` pour classe/niveau sur cartes | Join client non autorisé ; N+1 | Placeholder « classe — à venir » |
+| Dictionnaire FR `bless` → « BÉNI » | Règle métier / i18n côté client | Afficher `effect_id` brut |
+| Liste sorts en dur `[hunters_mark, bless, hex]` | Contourne `viewer.castable_spells[]` | Toujours la liste serveur |
+| Fausses positions / jetons carte | Simule moteur C4 | Placeholder panneau carte |
+| Timer / présence MJ dynamiques | Fausses données temps réel | Niveau ④ — ne pas afficher |
+| WebSocket / polling | Hors contrat v1 | — |
+| Modifier Python / types / API | Hors périmètre front | — |
+| Cacher le formulaire attaque sans remplacement | Régression fonctionnelle | Bouton maquette + formulaire accessible |
+| Afficher `0` pour PV/CA absents | Violation CONTRAT §2.8 | Masquer le champ |
 
 ---
 
-## Non-objectifs stricts
+## 7. Fonctionnalités à conserver impérativement
 
-Ne **pas** implémenter, même partiellement :
+Checklist **non négociable** — toute refonte visuelle doit passer ces tests :
 
-| Exclusion | Motif |
+1. `GET /v1/combats/{id}?viewer=` — chargement et affichage état
+2. Sélecteur viewer + mise à jour URL hash
+3. `POST …/advance-turn` — bouton fin de tour
+4. `POST …/attack` — attaque avec les 3 selects
+5. `POST …/cast` — sorts depuis `castable_spells[]` (ex. `hunters_mark` rôdeur au bon tour)
+6. Journal client alimenté après attaque et sort
+7. `POST …/close` — clôturer
+8. Lien fiche depuis initiative
+9. Messages d'erreur (`ErrorAlert`, codes API)
+10. États `preparing` / `active` / `ended` gérés comme aujourd'hui
+
+**Parcours de validation manuel** (personnages test : rôdeur `a505d6d5`, clerc `385022fd`) :
+
+Lobby → créer → activer → combat → viewer → attaquer → `hunters_mark` → tour suivant → clôturer.
+
+---
+
+## 8. Contraintes d'architecture
+
+Issues de `AGENTS.md` et du contrat — **garde-fous immuables** :
+
+| Contrainte | Détail |
 |---|---|
-| Carte tactique, grille, jetons, positions, mouvement | Moteur C4 inert ; lot map = ROADMAP lot 4 + WebSocket |
-| Avatars, portraits, `image_url` | Pas sur `Combatant` ; pas de fetch fiche supplémentaire |
-| Landing page publique | Horizon produit distinct |
-| WebSocket, push temps réel, resync automatique | Hors contrat v1 |
-| Timer de session, « MJ en ligne », multi-utilisateurs | Pas de donnée / pas d'auth |
-| Bassin de dés interactif, historique de dés | Pas de source API |
-| Classe + niveau sur carte combattant combat | Absent du DTO combat — pas de join client avec `GET /v1/characters` |
-| Libellés d'état traduits (« BÉNI », « EMPOISONNÉ ») non fournis par le DTO | `effect_id` opaque — CONTRAT §2.8 |
-| Grille de caractéristiques dans le HUD combat | Nécessiterait `GET …/sheet` — appel API nouveau |
-| Typage / refonte **`spellcasting`** sur fiche | Hors périmètre |
-| Toute modification **Python** (`jdr_engine/`, `interfaces/api/*.py`, tests moteur) | Lot front strict |
-| Modification **`interfaces/api/static/`** | Banc statique inchangé |
-| Nouvelle dépendance npm **sans accord mainteneur** | AGENTS.md §6 |
-| Règles D&D côté client (calcul toucher, sorts lançables, visibilité PV) | Interdit — serveur seul arbitre |
+| Aucun Python | `jdr_engine/`, `interfaces/api/*.py`, tests moteur — **0 modification** |
+| Aucune règle métier client | Pas de calcul toucher, visibilité PV, liste sorts, budget |
+| `viewer.castable_spells[]` | Seule source des sorts affichables |
+| Visibilité viewer | Champ absent ≠ `null` ≠ `0` — ne pas afficher |
+| Tour courant | `current_combatant_id` — **pas** `initiative_order[turn_index]` |
+| `WEAPON_IDS` | Liste fermée documentée — ne pas élargir |
+| Pas de nouvelle dépendance npm | Sans accord mainteneur |
+| `interfaces/api/static/` | Intouchable |
+| Fiche / lobby | Cohérence tokens seulement — **pas** refonte structure lobby/fiche dans ce lot (sauf ajustements CSS mineurs si collision) |
 
 ---
 
-## Direction artistique (tokens dérivés maquette)
+## 9. Fichiers autorisés / interdits
 
-### Palette
-
-| Token sémantique | Cible maquette | Usage |
-|---|---|---|
-| `--color-bg-base` | ~`#0a0a0a` | Fond application |
-| `--color-bg-elevated` | ~`#141414`–`#1a1a1a` | Panneaux / cartes |
-| `--color-border-subtle` | gris froid ~`#2a2a2a` | Bordures cartes |
-| `--color-accent` | ambre ~`#f59e0b` | CTA, surbrillance tour, chiffres clés |
-| `--color-accent-muted` | ambre ~20 % opacité | Fond combattant actif |
-| `--color-text-primary` | ~`#f5f5f5` | Texte principal |
-| `--color-text-muted` | ~`#9ca3af` | Hints, labels |
-| `--color-success` | vert ~`#22c55e` | Toucher, PV OK |
-| `--color-danger` | rouge ~`#ef4444` | Dégâts, miss critique (si utilisé) |
-
-Remplacer les variables actuelles `--current-border` / `--current-bg` (bleu) par des tokens ambre **sans casser** les écrans non migrés — migrer les références dans le même lot.
-
-### Typographie
-
-| Rôle | Police | Fallback |
-|---|---|---|
-| Titres écran / titres panneau | Serif display | `Georgia`, serif |
-| Corps, labels, données | Sans-serif | `Inter`, `system-ui`, sans-serif |
-| Ids techniques, jets | Monospace | `ui-monospace`, monospace |
-
-Chargement webfont (Google Fonts ou `@fontsource`) : **acceptable** si self-contained dans `web/` ; signaler toute dépendance externe CDN dans le rapport de lot.
-
-### Composants visuels
-
-- **Cartes** : fond `elevated`, bordure 1px, `border-radius: 8px`, padding `--space-md`
-- **Badge d'état** : pill, uppercase petit, fond accent ou sémantique
-- **Barre PV** : remplissage proportionnel `hp_current/hp_max` **uniquement si les deux valeurs sont présentes**
-- **Bouton primaire** : fond ambre, texte sombre ; **secondaire** : contour ambre, fond transparent
-- **Placeholder carte** : bordure en pointillés ou hachures, icône/texte « Carte — à venir (lot map) »
-
----
-
-## Fichiers autorisés à la modification
-
-**Uniquement** sous `web/src/**`, plus import du fichier tokens dans la chaîne CSS existante.
-
-Exemples attendus :
+### Autorisés
 
 ```
-web/src/app.css
-web/src/App.svelte
-web/src/lib/styles/tokens.css          (nouveau)
-web/src/lib/screens/CombatScreen.svelte
-web/src/lib/screens/LobbyScreen.svelte
-web/src/lib/screens/CharacterScreen.svelte
-web/src/lib/components/ErrorAlert.svelte
-web/src/lib/components/combat/*.svelte   (nouveaux)
+web/src/**
+web/index.html          (si besoin meta / fonts — déjà configuré)
 ```
 
-**Interdit** : `web/package.json` sauf accord explicite ; tout le reste du dépôt.
+Création attendue :
+
+```
+web/src/lib/components/combat/*.svelte   (CombatantCard, Panel, StatusBadge, JournalEntry, MapPlaceholder, …)
+web/src/lib/styles/*.css                 (extension tokens si besoin)
+```
+
+### Interdits
+
+| Zone | Raison |
+|---|---|
+| Tout hors `web/` | Lot front strict |
+| `web/package.json` | Sans accord |
+| Python, types moteur, API | Hors périmètre |
 
 ---
 
-## Contrats à respecter
+## 10. Cible visuelle — structure attendue (vertical slice)
 
-1. **Aucune règle métier côté client** — pas de calcul de toucher, de visibilité PV, de liste de sorts, de consommation de budget : le serveur tranche ; le client affiche et envoie les POST existants.
+Objectif : **une seule session de travail** doit produire un HUD **recognizable** vs la maquette Figma.
 
-2. **`viewer.castable_spells[]`** reste la **seule** source des boutons de sort — ids tels que renvoyés (`hunters_mark`, `bless`, `hex`). Pas de liste en dur parallèle.
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ EN-TÊTE : marque · pills ROUND / Tour · actions (recharger, clôturer)   │
+├──────────────┬──────────────────────────────┬───────────────────────────┤
+│ COLONNE G.   │ COLONNE CENTRE               │ COLONNE D.                │
+│ Membres      │ CARTE — EN DÉVELOPPEMENT     │ Fiche active (placeholder │
+│ (cartes)     │ (grand panneau)              │  ou nom + budget)         │
+│ Initiative   │                              │ Actions rapides (①+③)     │
+│ (bandeau)    │                              │ Journal (①)               │
+├──────────────┴──────────────────────────────┴───────────────────────────┤
+│ PIED : Bassin de dés — EN DÉVELOPPEMENT (boutons disabled)              │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
-3. **Visibilité conditionnelle** (CONTRAT §2.8) : champs absents ≠ zéro ; ne pas afficher CA/PV/budget si la clé manque.
+**Notes layout** :
 
-4. **Tour courant** : utiliser **`current_combatant_id`**, jamais `initiative_order[turn_index]`.
-
-5. **Armes** : conserver `WEAPON_IDS` de `web/src/lib/types/attack.ts` — pas d'élargissement non documenté.
-
-6. **Journal** : conserver le contenu informationnel des entrées (résumés attaque/sort) ; amélioration visuelle seulement.
-
-7. **Navigation et URLs hash** : ne pas casser `?viewer=` ni les liens `#/character/{id}`.
-
-8. **Accessibilité minimale** : conserver `aria-label` / `aria-live` sur zones dynamiques (initiative, journal, erreurs).
+- Route combat : utiliser **pleine largeur** (wrapper `.combat-layout` ou override `#app` sur cet écran) — `--layout-max-width: 80rem` peut être trop étroit pour la maquette.
+- Viewer : peut rester en en-tête ou panneau latéral — **ne pas supprimer**.
+- Responsive : empilement vertical &lt; ~1024px = acceptable en phase 2 ; phase 1 desktop-first acceptable si 3 colonnes visibles à 1280px.
 
 ---
 
-## Critères de done
+## 11. Découpage recommandé — vertical slice d'abord
 
-Chaque sous-lot (A, B, C) produit **un commit distinct**. Build et check s'appliquent à **chaque** commit.
+### Contexte : sous-lot A déjà livré (`fc66507`)
+
+Les tokens et la charte de base existent. **Ne pas refaire A.** Enchaîner directement sur le HUD maquette.
+
+### Phase 1 — Vertical slice visuel (**priorité absolue**, commit 1)
+
+**Objectif** : en **un commit**, livrer un HUD combat qui **ressemble à la maquette** avec placeholders explicites et **toutes** les interactions ① fonctionnelles.
+
+Contenu minimal Phase 1 :
+
+- Restructuration `CombatScreen` en 3 colonnes + en-tête + pied
+- Composants extraits (au moins : carte combattant, panneau, placeholder carte, entrée journal)
+- Placeholders niveau ③ pour : carte, avatars, classe/niveau, caractéristiques, compétences, dés, campagne
+- Données ①② branchées comme aujourd'hui
+- `npm run build` + `npm run check` OK
+- Parcours attaque + `hunters_mark` OK
+
+**Critère de succès Phase 1** : le mainteneur ouvre `#/combat/{id}` et **identifie immédiatement** la cible Figma, sans ambiguïté sur ce qui est réel vs en développement.
+
+**Point d'arrêt recommandé** : commit + capture d'écran + message « vertical slice prêt pour validation visuelle ». Pas obligatoire d'attendre validation avant Phase 2, **mais** Phase 1 doit être **auto-suffisante** pour feedback visuel.
+
+### Phase 2 — Finitions (**commit 2**, après Phase 1)
+
+- Barres PV soignées, badges `effect_id`, journal typographié façon maquette
+- Responsive dégradé
+- Nettoyage CSS scoped legacy / duplication
+- Ajustements tokens si écart maquette
+- Polish placeholders (cohérence libellés)
+
+**Ne pas bloquer Phase 1** pour la perfection pixel-perfect.
+
+### Ancienne découpe A → B → C
+
+**Remplacée.** A est fait. B et C fusionnés en **Phase 1 (slice)** + **Phase 2 (finitions)**. La sécurité ne repose plus sur « tokens seuls avant layout », mais sur :
+
+- garde-fous § 8 (pas de backend, pas de données inventées) ;
+- checklist § 7 (fonctionnel préservé) ;
+- placeholders explicites § 4 ;
+- parcours manuel obligatoire.
+
+---
+
+## 12. Critères de validation
+
+### Automatisés (chaque commit)
 
 ```bash
 cd web
 npm run build    # exit 0
-npm run check    # 0 erreur svelte-check + tsc
+npm run check    # 0 erreur
 ```
 
-### Done sous-lot A — tokens (commit 1)
+### Manuels — Phase 1 (obligatoires)
 
-- `tokens.css` importé ; fond sombre, accent ambre, boutons primaire/secondaire sur **Lobby**, **Fiche**, **Combat** (structure inchangée), nav, `ErrorAlert`
-- Contrainte `#app { max-width: 52rem }` levée ou contournée de façon documentée (ex. classe layout pleine largeur sur combat — peut rester en A même si le layout trois colonnes n'existe pas encore)
-- **Validation visuelle obligatoire** par le mainteneur (capture ou session locale) **avant** tout travail B — voir § Découpe obligatoire
-- Parcours lobby → fiche → combat existant : **aucune régression fonctionnelle**
+- [ ] Layout 3 colonnes visible à 1280px
+- [ ] Placeholder carte clairement libellé
+- [ ] Cartes combattants avec données réelles (nom, PV/CA si visibles)
+- [ ] Initiative + tour courant identifiables
+- [ ] Attaque complète fonctionne
+- [ ] Sort overlay (`hunters_mark`) fonctionne avec viewer
+- [ ] Journal reçoit entrées attaque/sort
+- [ ] Aucune donnée fictive (timer, MJ, fausses stats, fausse carte)
+- [ ] Zones ③ clairement marquées en développement
 
-### Done sous-lot B — layout combat (commit 2)
+### Manuels — Phase 2
 
-- `CombatScreen` restructuré trois colonnes + placeholder carte + composants extraits (structure)
-- Parcours complet attaque + sort (`hunters_mark`) fonctionnel
-- Contenu v1 toujours accessible (budget, concentration, effets, viewer, journal) — relocalisé acceptable
-
-### Done sous-lot C — finitions (commit 3)
-
-- Barres PV, badges `effect_id`, journal stylisé, responsive dégradé, nettoyage CSS legacy scoped
-- Parcours manuel complet :
-
-Avec uvicorn `:8000` + `npm run dev` `:5173`, personnages de test connus (ex. rôdeur `a505d6d5`, clerc `385022fd`) :
-
-1. **Lobby** — créer combat 2+ persos, **Activer et jouer**
-2. **Combat** — round, tour, initiative, PV/CA (vue MJ), effets si présents
-3. Viewer rôdeur → tour rôdeur → **`hunters_mark`** → resync + journal
-4. **Attaquer** → journal + resync PV
-5. **Tour suivant**, **Clôturer** → lobby OK
-6. Aucune **régression de contenu** vs v1
+- [ ] Responsive acceptable tablette / mobile
+- [ ] Cohérence visuelle journal / badges / barres PV
+- [ ] Pas de régression vs checklist Phase 1
 
 ### Non-régression moteur
 
-Aucun fichier hors `web/src/**` modifié — **945 tests** moteur inchangés (non relancés obligatoirement par l'agent front, mais aucun commit Python).
-
-### Livrable documentaire agent (par sous-lot)
-
-Rapport court : fichiers touchés, capture ou description visuelle, écarts vs maquette. **Lot A** : signaler explicitement « prêt pour validation mainteneur » et **s'arrêter**.
+Aucun fichier hors `web/src/**` (+ `web/index.html` si touché).
 
 ---
 
-## Dettes assumées et suites (nommées, non traitées)
+## 13. Dettes / fonctionnalités futures (nommées, non traitées)
 
-| Suite | Dépendance | Notes |
+| Dette | Débloqueur |
+|---|---|
+| Carte tactique réelle | Moteur C4, WebSocket (ROADMAP lot 4) |
+| Avatars | `image_url` sur combattant ou asset statique |
+| Classe / niveau en combat | Enrichissement DTO ou join serveur |
+| Caractéristiques HUD | Embed sheet partiel dans GET combat **ou** fetch autorisé (décision produit) |
+| Libellés effets FR | Compendium / i18n API |
+| Bassin de dés | Endpoint jets |
+| Timer / présence MJ | Auth, sessions |
+| Journal serveur | EventBus / endpoint log |
+| Landing marketing | Écran public séparé |
+
+---
+
+## 14. Ambiguïtés — décisions refusées sans mainteneur
+
+| Sujet | Options | Recommandation brief (défaut Fable) |
 |---|---|---|
-| **Carte tactique** | Moteur C4, WebSocket lot 4 | Remplace le placeholder |
-| **Avatars** | `image_url` ou champ combattant | Fetch fiche ou enrichissement DTO |
-| **Libellés d'effets** | Compendium / couche i18n API | Aujourd'hui `effect_id` brut |
-| **Classe / niveau en combat** | Enrichissement `Combatant` ou join serveur | Éviter N+1 client |
-| **Grille caractéristiques HUD** | Décision produit : embed `sheet` partiel dans GET combat vs panneau latéral linked | Appel API supplémentaire |
-| **Journal serveur + timestamps** | EventBus / endpoint log | Aujourd'hui journal session navigateur |
-| **Landing marketing** | Écran public séparé | Maquette Figma distincte |
-| **Bassin de dés** | Endpoint jets génériques | Hors contrat v1 |
-| **Timer / présence MJ** | Auth, sessions | Hors banc local |
-| **Thème clair** | Second jeu de tokens | Maquette = sombre only ; `color-scheme` à trancher |
+| Titre campagne en en-tête | Placeholder vs `Rencontre {combat_id}` | **`Rencontre #{combat_id}`** + petit badge « campagne à venir » |
+| Panneau caractéristiques droite | 6 cellules vides vs message unique | **Message unique** « Caractéristiques — à venir » (moins trompeur que six `--`) |
+| Pied de page dés | Barre complète disabled vs bandeau texte | **Barre visuelle** avec boutons disabled + label développement |
+| Horodatage journal local | Oui / non | **Optionnel** Phase 2 — pas requis Phase 1 |
+| Nav `App.svelte` | Style maquette en-tête vs nav actuelle | **Conserver** nav actuelle Phase 1 ; harmonisation Phase 2 si temps |
+| Pleine largeur combat | Override `#app` vs wrapper interne | **Wrapper `.combat-shell`** pleine largeur — ne pas casser lobby/fiche |
+
+Si Fable rencontre un cas non couvert : **placeholder ③ + note dans le rapport**, jamais invention de donnée.
 
 ---
 
-## Découpe obligatoire A → B → C
+## 15. Instructions d'exécution pour Fable 5
 
-L'épic se livre en **trois sous-lots séquentiels**, chacun = **un commit**. Ce n'est pas un plan de repli : **ne pas fusionner A+B+C** en une seule livraison.
+1. Lire ce brief et `CombatScreen.svelte` en entier.
+2. **Phase 1 d'abord** — vertical slice complet en un commit.
+3. Ne pas modifier le `<script>` sauf extraction helpers présentation ou déplacement markup — **logique API inchangée**.
+4. Extraire composants dans `web/src/lib/components/combat/`.
+5. Réutiliser / étendre `tokens.css` — ne pas dupliquer palette.
+6. Placeholders **visibles et honnêtes** pour tout niveau ③.
+7. Valider build/check + parcours § 12.
+8. Phase 2 seulement après Phase 1 commitée et validée visuellement (par mainteneur ou auto si consigne explicite).
 
-| Sous-lot | Commit | Contenu | Point d'arrêt |
-|---|---|---|---|
-| **A — Fondations** | 1 | `tokens.css`, import `app.css`, levée `max-width` `#app`, skin nav + `ErrorAlert` + boutons globaux sur Lobby / Fiche / Combat (**structure inchangée**) | **Stop ici** — validation mainteneur requise |
-| **B — Layout combat** | 2 | Composants combat + restructuration trois colonnes + placeholder carte | Parcours attaque + sorts OK |
-| **C — Finitions** | 3 | Barres PV, badges effets, journal stylisé, responsive, nettoyage CSS scoped | Critères de done complets (§ Critères de done) |
+**Phrase de mission pour copier-coller** :
 
-### Règle de enchaînement (non négociable)
-
-**Le sous-lot B ne commence qu'après** :
-
-1. **Commit** du sous-lot A poussé ou livré sur la branche d'intégration ;
-2. **Validation visuelle** du mainteneur sur les trois écrans (lobby, fiche, combat en layout v1) — fond sombre, ambre, typo, boutons cohérents ;
-3. **Accord explicite** du mainteneur pour enchaîner B.
-
-L'agent qui implémente A **s'arrête** après le commit A et signale « prêt pour validation visuelle ». **Interdit** d'entamer la restructuration `CombatScreen` dans le même commit ou la même session sans ce feu vert.
-
-**Pourquoi** : les tokens seuls changent déjà l'apparence des trois écrans — le mainteneur voit quelque chose de concret avant d'engager le layout. Si B dérape, on n'a pas un demi-HUD trois colonnes cassé : on a une charte validée sur une structure connue.
-
-### Checklist validation visuelle A (mainteneur)
-
-- [ ] Lobby : fond sombre, boutons primaire/secondaire lisibles, formulaires inchangés fonctionnels
-- [ ] Fiche personnage : même charte, grille caractéristiques lisible
-- [ ] Combat (layout v1 mono-colonne) : même charte, HUD existant intact fonctionnellement
-- [ ] Nav + messages d'erreur (`ErrorAlert`, 502 API injoignable) cohérents
-- [ ] `npm run build` et `npm run check` OK
+> Prends le HUD combat existant (`CombatScreen.svelte`), conserve intégralement son comportement et ses contrats API, et transforme son affichage pour qu'il ressemble à la maquette Figma (3 colonnes, sombre/ambre). Données réelles où elles existent ; placeholders « EN DÉVELOPPEMENT » partout ailleurs. Aucun Python, aucun nouvel appel API, aucune donnée inventée. Livrer d'abord un vertical slice visuel (Phase 1), puis finitions (Phase 2). Suis `docs/web/BRIEF_FABLE_AFFICHAGE.md`.
 
 ---
 
-## Références code (points d'ancrage)
+## Références code
 
 | Sujet | Fichier |
 |---|---|
 | HUD actuel | `web/src/lib/screens/CombatScreen.svelte` |
+| Tokens | `web/src/lib/styles/tokens.css` |
 | Types combat | `web/src/lib/types/combat.ts` |
-| Types attaque | `web/src/lib/types/attack.ts` |
 | API client | `web/src/lib/api/combat.ts` |
-| Contrat viewer / effets / sorts | `docs/api/CONTRAT.md` §2.8, §2.9 |
-| Stack front | `docs/adr/ADR-007-stack-client-web.md` |
-| Lancement local | `web/README.md` |
+| Contrat | `docs/api/CONTRAT.md` §2.8–2.9 |
+| Lancement | `web/README.md` |
