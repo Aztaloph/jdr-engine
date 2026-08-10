@@ -166,6 +166,27 @@ def register_combat_routes(
             ) from exc
         return combat_state_to_dict(state)
 
+    @app.get("/v1/combats/open")
+    def list_open_combats() -> dict:
+        """Index des combats ouverts (banc de test — libère les personnages via close)."""
+        entries: list[dict] = []
+        for record in combat_repository.list_open():
+            state = record.state
+            entries.append(
+                {
+                    "combat_id": record.combat_id,
+                    "status": state.status,
+                    "participants": [
+                        {
+                            "character_id": combatant.character_id,
+                            "display_name": combatant.display_name,
+                        }
+                        for combatant in state.combatants.values()
+                    ],
+                }
+            )
+        return {"combats": entries}
+
     @app.get("/v1/combats/{combat_id}")
     def get_combat(combat_id: int, viewer: str | None = None) -> dict:
         try:

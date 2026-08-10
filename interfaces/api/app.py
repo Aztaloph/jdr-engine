@@ -31,7 +31,7 @@ from jdr_engine.application.dto.output_serializers import (
 from jdr_engine.domain.character.character import Character
 from jdr_engine.persistence.combat_log_repository import SqliteCombatLogRepository
 from jdr_engine.persistence.combat_repository import SqliteCombatRepository
-from jdr_engine.persistence.database import init_database
+from jdr_engine.persistence.database import init_database, get_connection
 from jdr_engine.persistence.sqlite_character_repository import (
     SqliteCharacterRepository,
 )
@@ -105,6 +105,30 @@ def create_app(
                 "Personnage introuvable.",
             )
         return character
+
+    @app.get("/v1/characters")
+    def list_characters() -> dict:
+        """Index minimal pour le banc de test web (pas de filtre propriétaire)."""
+        with get_connection(resolved_db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, nom, classe, niveau, race_id
+                FROM personnages
+                ORDER BY nom COLLATE NOCASE
+                """
+            ).fetchall()
+        return {
+            "characters": [
+                {
+                    "character_id": row["id"],
+                    "name": row["nom"],
+                    "class_id": row["classe"],
+                    "level": row["niveau"],
+                    "race_id": row["race_id"],
+                }
+                for row in rows
+            ]
+        }
 
     @app.get("/v1/characters/{character_id}/sheet")
     def get_sheet(character_id: str) -> dict:

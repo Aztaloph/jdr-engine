@@ -291,6 +291,42 @@ button:disabled {
   margin-bottom: 0;
 }
 
+.character-rows select {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  font: inherit;
+}
+
+.row-toggle {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+
+.open-combats-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.open-combats-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.open-combat-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .row-remove {
   flex-shrink: 0;
   font-size: 0.85rem;

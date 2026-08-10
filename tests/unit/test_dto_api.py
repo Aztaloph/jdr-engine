@@ -806,6 +806,23 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertEqual(err["code"], "CHARACTER_NOT_FOUND")
         self.assertEqual(err["message"], "Personnage introuvable.")
 
+    def test_list_characters_returns_index(self):
+        self._seed(_tiefling_warlock(), "api001")
+        char = _tiefling_warlock()
+        char.name = "Alice"
+        char.class_id = "fighter"
+        char.level = 2
+        self._seed(char, "api002")
+        response = self.client.get("/v1/characters")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data["characters"]), 2)
+        by_id = {entry["character_id"]: entry for entry in data["characters"]}
+        self.assertEqual(by_id["api001"]["name"], "Occultiste")
+        self.assertEqual(by_id["api002"]["name"], "Alice")
+        self.assertEqual(by_id["api002"]["class_id"], "fighter")
+        self.assertEqual(by_id["api002"]["level"], 2)
+
     # ── POST /v1/characters/{id}/cast ──
 
     def test_cast_ok_and_persisted_state_matches_response(self):

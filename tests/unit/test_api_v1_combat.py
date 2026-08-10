@@ -165,6 +165,18 @@ class TestApiV1CombatLifecycle(unittest.TestCase):
         self.assertEqual(closed.status_code, 200)
         self.assertEqual(closed.json()["status"], "ended")
 
+    def test_list_open_combats_excludes_closed(self):
+        created = self._create_combat([self.alice.id, self.bob.id])
+        combat_id = created.json()["combat_id"]
+        listed = self.client.get("/v1/combats/open")
+        self.assertEqual(listed.status_code, 200)
+        open_ids = [entry["combat_id"] for entry in listed.json()["combats"]]
+        self.assertIn(combat_id, open_ids)
+        self.client.post(f"/v1/combats/{combat_id}/close")
+        after = self.client.get("/v1/combats/open")
+        self.assertEqual(after.status_code, 200)
+        self.assertEqual(after.json()["combats"], [])
+
     def test_characters_reusable_after_close(self):
         """Test explicite commit 3 — clôture libère les personnages pour un nouveau lobby."""
         first = self._create_combat(

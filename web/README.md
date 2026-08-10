@@ -11,6 +11,8 @@ Node.js 18+ et npm. Deux **character_id** existants en base (ex. tests E2E ou Di
 
 Le client Svelte (`5173`) appelle l'API via le proxy Vite (`/v1` → `127.0.0.1:8000`). **Sans uvicorn, le lobby renvoie HTTP 502** (connexion refusée — ce n'est pas une erreur métier).
 
+**Raccourci Windows** — double-clic sur `launcher_web.bat` à la racine du dépôt (ouvre deux fenêtres cmd : API `:8000` + client `:5173`).
+
 **Terminal 1 — racine du dépôt** (API sur le port **8000**) :
 
 ```powershell
@@ -28,6 +30,14 @@ npm run dev
 ```
 
 Ouvrir **http://localhost:5173** (pas `:8000` — celui-ci sert le banc statique Python, distinct).
+
+**Lister les personnages en terminal** (si la liste du lobby est vide) :
+
+```powershell
+venv\Scripts\python.exe tools\list_characters.py
+```
+
+Après ajout de la route `GET /v1/characters`, **redémarrer uvicorn** pour que le lobby charge la liste déroulante.
 
 ## Installation
 
@@ -54,7 +64,8 @@ Depuis le lobby (**Consulter une fiche**) ou l'URL `#/character/{character_id}`.
 
 1. **Lobby** — saisir deux `character_id`, **Créer le combat** → `POST /v1/combats`.
 2. **Activer et jouer** → `POST /v1/combats/{id}/activate`, navigation vers `#/combat/{id}`.
-3. **Combat** — recharger si besoin, **Tour suivant**, **Attaquer** (`POST /v1/combats/{id}/attack`).
+3. **Combat** — recharger si besoin, **Tour suivant**, **Attaquer**, sorts (viewer requis).
+4. **Clôturer** — lobby ou écran combat (`POST …/close`) libère les personnages pour retester.
 
 « Tour suivant » et « Attaquer » sont désactivés si `status !== "active"`.
 

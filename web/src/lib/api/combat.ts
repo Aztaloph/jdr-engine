@@ -303,3 +303,63 @@ export async function activateCombat(combatId: string): Promise<CombatState> {
   }
   return result;
 }
+
+export interface OpenCombatParticipant {
+  character_id: string;
+  display_name: string;
+}
+
+export interface OpenCombatSummary {
+  combat_id: number;
+  status: CombatState["status"];
+  participants: OpenCombatParticipant[];
+}
+
+export async function fetchOpenCombats(): Promise<OpenCombatSummary[]> {
+  let res: Response;
+  try {
+    res = await fetch("/v1/combats/open");
+  } catch (cause) {
+    throw {
+      kind: "network",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : "API injoignable — vérifiez qu'uvicorn tourne sur le port 8000.",
+    } satisfies LoadError;
+  }
+
+  const result = await parseJsonResponse<{ combats: OpenCombatSummary[] }>(res);
+  if ("kind" in result) {
+    throw result;
+  }
+  return result.combats ?? [];
+}
+
+export async function closeCombat(combatId: string): Promise<CombatState> {
+  const id = combatId.trim();
+  if (!id) {
+    throw { kind: "network", message: "combat_id requis." } satisfies LoadError;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`/v1/combats/${encodeURIComponent(id)}/close`, {
+      method: "POST",
+    });
+  } catch (cause) {
+    throw {
+      kind: "network",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : "API injoignable — vérifiez qu'uvicorn tourne sur le port 8000.",
+    } satisfies LoadError;
+  }
+
+  const result = await parseJsonResponse<CombatState>(res);
+  if ("kind" in result) {
+    throw result;
+  }
+  return result;
+}

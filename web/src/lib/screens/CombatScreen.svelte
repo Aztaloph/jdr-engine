@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     advanceCombatTurn,
+    closeCombat,
     fetchCombatState,
     isLoadError,
     postCombatCast,
@@ -13,7 +14,7 @@
     type WeaponId,
   } from "../types/attack";
   import { link, router } from "svelte-spa-router";
-  import { navigateToCombat, viewerFromQuerystring } from "../navigation";
+  import { navigateToCombat, navigateToLobby, viewerFromQuerystring } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
 
   type JournalEntry =
@@ -66,6 +67,20 @@
   );
 
   const castableSpells = $derived(combat?.viewer?.castable_spells ?? []);
+
+  const combatParticipants = $derived(
+    combat
+      ? Object.values(combat.combatants).map((c) => ({
+          character_id: c.character_id,
+          display_name: c.display_name,
+        }))
+      : [],
+  );
+
+  const isViewerTurn = $derived(
+    combat?.viewer?.combatant_id != null &&
+      combat.current_combatant_id === combat.viewer.combatant_id,
+  );
 
   const canCastSpell = $derived(
     combat !== null &&
@@ -182,7 +197,7 @@
     await loadCombat(combatId, viewer);
   }
 
-  function onViewerInput() {
+  function onViewerSelect() {
     navigateToCombat(combatId, viewer);
   }
 
@@ -194,6 +209,22 @@
     loading = true;
     try {
       applyCombatState(await advanceCombatTurn(combatId, viewer));
+    } catch (e) {
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function closeAndReturnToLobby() {
+    if (!combatId) {
+      return;
+    }
+    error = null;
+    loading = true;
+    try {
+      await closeCombat(combatId);
+      navigateToLobby();
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
     } finally {
@@ -293,17 +324,36 @@
 </p>
 
 <fieldset>
-  <legend>Vue</legend>
-  <label>
-    viewer (character_id — requis pour les sorts du joueur)
-    <input
-      type="text"
-      bind:value={viewer}
-      oninput={onViewerInput}
-      placeholder="ex. a505d6d5 (rodeur)"
-      autocomplete="off"
-    />
-  </label>
+  <legend>Vue joueur (sorts)</legend>
+  {#if combatParticipants.length > 0}
+    <label>
+      viewer — personnage dont vous simulez la vue
+      <select bind:value={viewer} onchange={onViewerSelect}>
+        <option value="">— Vue MJ (pas de sorts joueur) —</option>
+        {#each combatParticipants as p (p.character_id)}
+          <option value={p.character_id}>
+            {p.display_name} ({p.character_id})
+          </option>
+        {/each}
+      </select>
+    </label>
+  {:else}
+    <label>
+      viewer (character_id)
+      <input
+        type="text"
+        bind:value={viewer}
+        oninput={onViewerSelect}
+        placeholder="ex. a505d6d5"
+        autocomplete="off"
+      />
+    </label>
+  {/if}
+  <p class="hint">
+    Sorts combat (overlay v1) : <code>hunters_mark</code> rôdeur ·
+    <code>bless</code> clerc · <code>hex</code>. Au tour du viewer, avec le budget
+    requis. Le magicien n'y figure pas (<code>shield</code> = réaction, hors panneau).
+  </p>
 </fieldset>
 
 <div class="actions">
@@ -312,6 +362,9 @@
   </button>
   <button type="button" onclick={advanceTurn} disabled={!canAdvance}>
     Tour suivant
+  </button>
+  <button type="button" onclick={closeAndReturnToLobby} disabled={loading || !combatId}>
+    Clôturer le combat
   </button>
 </div>
 
@@ -457,12 +510,23 @@
             {/each}
           </div>
         {:else if viewer.trim()}
-          <p class="hint">
-            Aucun sort lançable pour ce viewer (hors tour, budget, ou fiche).
-          </p>
+          <div class="spell-hint-detail">
+            {#if combat.viewer?.combatant_id == null}
+              <p class="hint">Ce viewer ne participe pas à ce combat.</p>
+            {:else if !isViewerTurn}
+              <p class="hint">
+                Ce n'est pas le tour de {combatantName(combat.viewer.combatant_id, combat)}
+                — utilisez « Tour suivant ».
+              </p>
+            {:else}
+              <p class="hint">
+                Aucun sort overlay lançable pour cette fiche (voir la liste ci-dessus).
+              </p>
+            {/if}
+          </div>
         {:else}
           <p class="hint">
-            Renseignez viewer (character_id) pour voir les sorts lançables.
+            Choisissez un viewer dans la liste pour activer les sorts joueur.
           </p>
         {/if}
       </section>

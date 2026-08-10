@@ -1,18 +1,30 @@
 <script lang="ts">
   import {
     activateCombat,
+    closeCombat,
     createCombat,
+    fetchOpenCombats,
     isLoadError,
+    type OpenCombatSummary,
   } from "../api/combat";
+  import { fetchCharacterList } from "../api/characters";
+  import type { CharacterListEntry } from "../types/character";
   import type { CombatState, LoadError } from "../types/combat";
   import { navigateToCombat, navigateToCharacter } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
 
   let characterRows = $state<string[]>(["", ""]);
+  let manualRows = $state<boolean[]>([false, false]);
   let sheetCharacterId = $state("");
+  let sheetManual = $state(false);
+  let characterOptions = $state<CharacterListEntry[]>([]);
+  let listError = $state<string | null>(null);
   let lobbyCombat = $state<CombatState | null>(null);
+  let openCombats = $state<OpenCombatSummary[]>([]);
   let error = $state<LoadError | null>(null);
   let loading = $state(false);
+
+  const hasCharacterList = $derived(characterOptions.length > 0);
 
   const canCreate = $derived(
     !loading &&
@@ -26,16 +38,52 @@
       !loading,
   );
 
+  $effect(() => {
+    void loadCharacterOptions();
+    void loadOpenCombats();
+  });
+
+  async function loadOpenCombats() {
+    try {
+      openCombats = await fetchOpenCombats();
+    } catch {
+      openCombats = [];
+    }
+  }
+
+  async function loadCharacterOptions() {
+    listError = null;
+    try {
+      characterOptions = await fetchCharacterList();
+    } catch (e) {
+      characterOptions = [];
+      listError = isLoadError(e)
+        ? e.message
+        : "Impossible de charger la liste des personnages.";
+    }
+  }
+
+  function characterOptionLabel(entry: CharacterListEntry): string {
+    return `${entry.name} (${entry.character_id}) — ${entry.class_id} niv.${entry.level}`;
+  }
+
   function addRow() {
     characterRows = [...characterRows, ""];
+    manualRows = [...manualRows, false];
   }
 
   function removeRow(index: number) {
     if (characterRows.length <= 1) {
       characterRows = [""];
+      manualRows = [false];
       return;
     }
     characterRows = characterRows.filter((_, i) => i !== index);
+    manualRows = manualRows.filter((_, i) => i !== index);
+  }
+
+  function toggleManualRow(index: number) {
+    manualRows[index] = !manualRows[index];
   }
 
   function nonEmptyCharacterIds(): string[] {
@@ -47,6 +95,7 @@
     loading = true;
     try {
       lobbyCombat = await createCombat(nonEmptyCharacterIds());
+      await loadOpenCombats();
     } catch (e) {
       lobbyCombat = null;
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
@@ -81,28 +130,116 @@
   function openCharacterSheet() {
     navigateToCharacter(sheetCharacterId);
   }
+
+  async function closeOpenCombat(combatId: number) {
+    error = null;
+    loading = true;
+    try {
+      await closeCombat(String(combatId));
+      if (lobbyCombat?.combat_id === combatId) {
+        lobbyCombat = null;
+      }
+      await loadOpenCombats();
+    } catch (e) {
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      loading = false;
+    }
+  }
+
+  function participantNames(entry: OpenCombatSummary): string {
+    return entry.participants.map((p) => p.display_name).join(", ");
+  }
 </script>
 
 <h1>Lobby — créer une rencontre</h1>
 <p class="hint">
-  Saisie manuelle des <code>character_id</code> (pas de liste API). Vue MJ —
-  les réponses create/activate ne filtrent pas par viewer.
+  Choisissez les personnages dans la liste (API <code>GET /v1/characters</code>)
+  ou basculez en saisie manuelle. Vue MJ — create/activate sans filtre viewer.
 </p>
+
+{#if listError}
+  <p class="hint" role="status">
+    Liste indisponible : {listError}. Terminal :
+    <code>venv\Scripts\python.exe tools\list_characters.py</code>
+  </p>
+{:else if hasCharacterList}
+  <p class="hint" role="status">{characterOptions.length} personnage(s) en base.</p>
+{/if}
+
+<fieldset>
+  <legend>Combats ouverts — libérer les personnages</legend>
+  {#if openCombats.length === 0}
+    <p class="hint">Aucun combat ouvert. Vos personnages sont disponibles pour un nouveau lobby.</p>
+  {:else}
+    <ul class="open-combats-list">
+      {#each openCombats as entry (entry.combat_id)}
+        <li>
+          <div>
+            <strong>Combat {entry.combat_id}</strong>
+            <span class="hint"> — {entry.status} · {participantNames(entry)}</span>
+          </div>
+          <div class="open-combat-actions">
+            <button type="button" class="linkish" onclick={() => navigateToCombat(entry.combat_id)} disabled={loading}>
+              Ouvrir
+            </button>
+            <button type="button" onclick={() => closeOpenCombat(entry.combat_id)} disabled={loading}>
+              Clôturer
+            </button>
+          </div>
+        </li>
+      {/each}
+    </ul>
+    <p class="hint">
+      Clôturer un combat synchronise les PV sur la fiche et libère les personnages pour retester.
+    </p>
+  {/if}
+</fieldset>
 
 <fieldset>
   <legend>Combattants</legend>
   <ul class="character-rows">
     {#each characterRows as _row, index (index)}
       <li>
-        <label>
-          character_id {index + 1}
-          <input
-            type="text"
-            bind:value={characterRows[index]}
-            placeholder="ex. e2e_alice"
-            autocomplete="off"
-          />
-        </label>
+        {#if hasCharacterList && !manualRows[index]}
+          <label>
+            Personnage {index + 1}
+            <select bind:value={characterRows[index]}>
+              <option value="">— Choisir —</option>
+              {#each characterOptions as entry (entry.character_id)}
+                <option value={entry.character_id}>
+                  {characterOptionLabel(entry)}
+                </option>
+              {/each}
+            </select>
+          </label>
+          <button
+            type="button"
+            class="linkish row-toggle"
+            onclick={() => toggleManualRow(index)}
+          >
+            Saisie manuelle
+          </button>
+        {:else}
+          <label>
+            character_id {index + 1}
+            <input
+              type="text"
+              bind:value={characterRows[index]}
+              placeholder="ex. 1715ef0a"
+              autocomplete="off"
+            />
+          </label>
+          {#if hasCharacterList}
+            <button
+              type="button"
+              class="linkish row-toggle"
+              onclick={() => toggleManualRow(index)}
+            >
+              Liste déroulante
+            </button>
+          {/if}
+        {/if}
         <button
           type="button"
           class="row-remove"
@@ -119,15 +256,37 @@
 
 <fieldset>
   <legend>Consulter une fiche</legend>
-  <label>
-    character_id
-    <input
-      type="text"
-      bind:value={sheetCharacterId}
-      placeholder="ex. e2e_alice"
-      autocomplete="off"
-    />
-  </label>
+  {#if hasCharacterList && !sheetManual}
+    <label>
+      Personnage
+      <select bind:value={sheetCharacterId}>
+        <option value="">— Choisir —</option>
+        {#each characterOptions as entry (entry.character_id)}
+          <option value={entry.character_id}>
+            {characterOptionLabel(entry)}
+          </option>
+        {/each}
+      </select>
+    </label>
+    <button type="button" class="linkish" onclick={() => (sheetManual = true)}>
+      Saisie manuelle
+    </button>
+  {:else}
+    <label>
+      character_id
+      <input
+        type="text"
+        bind:value={sheetCharacterId}
+        placeholder="ex. 1715ef0a"
+        autocomplete="off"
+      />
+    </label>
+    {#if hasCharacterList}
+      <button type="button" class="linkish" onclick={() => (sheetManual = false)}>
+        Liste déroulante
+      </button>
+    {/if}
+  {/if}
   <div class="actions">
     <button
       type="button"
