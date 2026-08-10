@@ -41,8 +41,13 @@ Routage via [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-route
 | `#/` ou `#/lobby` | Création / activation d'une rencontre |
 | `#/combat/{id}` | Combat existant (vue MJ par défaut) |
 | `#/combat/{id}?viewer={character_id}` | Combat filtré joueur |
+| `#/character/{id}` | Fiche personnage (minimal) |
 
 Le **viewer** est porté dans le hash pour des URLs partageables. Modifier le champ viewer sur l'écran combat met à jour l'URL.
+
+## Fiche personnage
+
+Depuis le lobby (**Consulter une fiche**) ou l'URL `#/character/{character_id}`. Pendant un combat, lien **fiche** depuis l'initiative si `character_id` est exposé.
 
 ## Parcours complet (sans curl)
 
@@ -58,6 +63,7 @@ Le **viewer** est porté dans le hash pour des URLs partageables. Modifier le ch
 |---|---|
 | `src/lib/types/combat.ts` | `combat_state_to_dict` |
 | `src/lib/types/attack.ts` | `weapon_attack_result_to_dict` |
+| `src/lib/types/sheet.ts` | `character_sheet_to_dict` (+ overlay combat) |
 
 ## Vérification
 

@@ -5,10 +5,11 @@
     isLoadError,
   } from "../api/combat";
   import type { CombatState, LoadError } from "../types/combat";
-  import { navigateToCombat } from "../navigation";
+  import { navigateToCombat, navigateToCharacter } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
 
   let characterRows = $state<string[]>(["", ""]);
+  let sheetCharacterId = $state("");
   let lobbyCombat = $state<CombatState | null>(null);
   let error = $state<LoadError | null>(null);
   let loading = $state(false);
@@ -76,6 +77,10 @@
       navigateToCombat(lobbyCombat.combat_id);
     }
   }
+
+  function openCharacterSheet() {
+    navigateToCharacter(sheetCharacterId);
+  }
 </script>
 
 <h1>Lobby — créer une rencontre</h1>
@@ -110,6 +115,28 @@
     {/each}
   </ul>
   <button type="button" class="linkish" onclick={addRow}>+ Ajouter un personnage</button>
+</fieldset>
+
+<fieldset>
+  <legend>Consulter une fiche</legend>
+  <label>
+    character_id
+    <input
+      type="text"
+      bind:value={sheetCharacterId}
+      placeholder="ex. e2e_alice"
+      autocomplete="off"
+    />
+  </label>
+  <div class="actions">
+    <button
+      type="button"
+      onclick={openCharacterSheet}
+      disabled={loading || !sheetCharacterId.trim()}
+    >
+      Ouvrir la fiche
+    </button>
+  </div>
 </fieldset>
 
 <div class="actions">

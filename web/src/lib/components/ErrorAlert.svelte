@@ -22,7 +22,7 @@
     {:else if error.code === "COMBAT_STATUS_INVALID"}
       <span class="hint">Action impossible dans le statut actuel du combat.</span>
     {:else if error.code === "CHARACTER_NOT_FOUND"}
-      <span class="hint">Un ou plusieurs character_id sont introuvables en base.</span>
+      <span class="hint">Personnage introuvable — vérifiez le character_id.</span>
     {:else if error.code === "CHARACTER_ALREADY_IN_COMBAT"}
       <span class="hint">Un personnage participe déjà à un combat ouvert.</span>
     {:else if error.code === "INSUFFICIENT_COMBATANTS"}

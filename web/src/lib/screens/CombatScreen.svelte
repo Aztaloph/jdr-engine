@@ -11,7 +11,7 @@
     type WeaponAttackResult,
     type WeaponId,
   } from "../types/attack";
-  import { router } from "svelte-spa-router";
+  import { link, router } from "svelte-spa-router";
   import { navigateToCombat, viewerFromQuerystring } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
 
@@ -363,6 +363,13 @@
               <div class="combatant-name">
                 {c.display_name}
                 <span class="mono">({cid})</span>
+                {#if c.character_id}
+                  <a
+                    href="/character/{encodeURIComponent(c.character_id)}"
+                    use:link
+                    class="inline-link"
+                  >fiche</a>
+                {/if}
                 {#if cid === currentId}
                   <span aria-label="tour courant"> → tour</span>
                 {/if}

@@ -30,6 +30,18 @@ export function navigateToCombat(combatId: string | number, viewer?: string): vo
   void push(path);
 }
 
+export function navigateToCharacter(characterId: string): void {
+  const id = characterId.trim();
+  if (!id) {
+    return;
+  }
+  const targetLocation = `/character/${encodeURIComponent(id)}`;
+  if (router.location === targetLocation) {
+    return;
+  }
+  void push(targetLocation);
+}
+
 export function ensureDefaultRoute(): void {
   const hash = window.location.hash;
   if (!hash || hash === "#" || hash === "#/") {
