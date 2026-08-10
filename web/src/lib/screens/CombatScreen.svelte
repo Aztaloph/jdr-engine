@@ -570,9 +570,9 @@
   }
 
   .hud-turn {
-    border: 2px solid var(--current-border, #3b82f6);
-    background: var(--current-bg, #3b82f622);
-    border-radius: 8px;
+    border: 2px solid var(--current-border);
+    background: var(--current-bg);
+    border-radius: var(--radius-lg, 8px);
     padding: 0.85rem 1rem;
   }
 
@@ -617,14 +617,15 @@
   }
 
   .hud-initiative-item {
-    border: 1px solid var(--border, #8884);
-    border-radius: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md, 6px);
     padding: 0.55rem 0.75rem;
+    background: var(--color-bg-elevated, #141414);
   }
 
   .hud-initiative-item.is-turn {
-    border-color: var(--current-border, #3b82f6);
-    background: var(--current-bg, #3b82f622);
+    border-color: var(--current-border);
+    background: var(--current-bg);
   }
 
   .hud-initiative-item.is-inactive {
@@ -642,9 +643,9 @@
     font-weight: 700;
     text-transform: uppercase;
     padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    background: var(--current-border, #3b82f6);
-    color: #fff;
+    border-radius: var(--radius-sm, 4px);
+    background: var(--current-border);
+    color: var(--color-accent-text, #0a0a0a);
   }
 
   .hud-effects-list,
@@ -660,7 +661,7 @@
   }
 
   .hud-actions {
-    border-top: 1px solid var(--border, #8884);
+    border-top: 1px solid var(--border);
     padding-top: 0.75rem;
   }
 
@@ -674,13 +675,15 @@
     display: flex;
     gap: 0.5rem;
     padding: 0.5rem 0.65rem;
-    border-radius: 6px;
-    border: 1px solid var(--border, #8884);
+    border-radius: var(--radius-md, 6px);
+    border: 1px solid var(--border);
     font-size: 0.92rem;
+    background: var(--color-bg-elevated, #141414);
   }
 
   .hud-journal-item.spell {
-    border-color: #7c3aed66;
+    border-color: var(--color-accent);
+    background: var(--color-accent-muted);
   }
 
   .hud-journal-kind {

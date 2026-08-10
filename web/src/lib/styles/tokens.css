@@ -1,0 +1,60 @@
+/**
+ * Design tokens — charte JDR Engine (sombre + ambre).
+ * Réutilisable par tous les écrans ; sous-lot A du brief BRIEF_FABLE_AFFICHAGE.md.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --color-bg-base: #0a0a0a;
+  --color-bg-elevated: #141414;
+  --color-bg-panel: #1a1a1a;
+  --color-bg-input: #111111;
+
+  /* Bordures */
+  --color-border-subtle: #2a2a2a;
+  --color-border-default: #3a3a3a;
+
+  /* Accent ambre */
+  --color-accent: #f59e0b;
+  --color-accent-hover: #d97706;
+  --color-accent-muted: rgb(245 158 11 / 0.15);
+  --color-accent-text: #0a0a0a;
+
+  /* Texte */
+  --color-text-primary: #f5f5f5;
+  --color-text-muted: #9ca3af;
+
+  /* Sémantique */
+  --color-success: #22c55e;
+  --color-danger: #ef4444;
+  --color-error-bg: rgb(239 68 68 / 0.12);
+  --color-error-border: #ef4444;
+
+  /* Alias legacy (CombatScreen scoped, app.css existant) */
+  --border: var(--color-border-default);
+  --current-border: var(--color-accent);
+  --current-bg: var(--color-accent-muted);
+  --error-bg: var(--color-error-bg);
+  --error-border: var(--color-error-border);
+
+  /* Typographie */
+  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-body: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", monospace;
+
+  /* Espacements */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 0.75rem;
+  --space-lg: 1.25rem;
+  --space-xl: 1.5rem;
+
+  /* Rayons */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Layout — 52rem levé (brief) ; largeur utile pour futur HUD 3 colonnes */
+  --layout-max-width: min(80rem, 100%);
+}
