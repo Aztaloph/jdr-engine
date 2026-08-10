@@ -16,6 +16,19 @@ class CombatStarted(DomainEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
+class CombatantJoined(DomainEvent):
+    """Entrée d'un combattant en rencontre déjà ``active``."""
+
+    combat_id: str
+    guild_id: str
+    channel_id: str
+    combatant_id: str
+    character_id: str
+    initiative_order: tuple[str, ...]
+    inserted_at_index: int
+
+
+@dataclass(frozen=True, kw_only=True)
 class CombatEnded(DomainEvent):
     """Fin de rencontre.
 

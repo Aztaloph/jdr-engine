@@ -60,6 +60,24 @@ def sort_initiative_order(
     return tuple(r.combatant_id for r in ordered)
 
 
+def insert_combatant_into_initiative_order(
+    order: tuple[str, ...],
+    combatant_id: str,
+    initiative_total: int,
+    *,
+    initiative_totals: dict[str, int],
+) -> tuple[str, ...]:
+    """
+    Insère un combattant dans l'ordre d'initiative figé.
+
+    Même règle de tri que ``sort_initiative_order`` (total desc, id asc).
+    """
+    totals = dict(initiative_totals)
+    totals[combatant_id] = initiative_total
+    members = list(order) + [combatant_id]
+    return tuple(sorted(members, key=lambda cid: (-totals[cid], cid)))
+
+
 def next_active_turn_index(
     initiative_order: tuple[str, ...],
     turn_index: int,

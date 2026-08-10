@@ -87,6 +87,18 @@ class CombatService:
     def activate_combat(self, combat_id: int, *, rng=None) -> CombatState:
         return self._manager.activate_combat(combat_id, rng=rng)
 
+    def advance_turn(self, combat_id: int) -> CombatState:
+        return self._manager.advance_turn(combat_id)
+
+    def add_combatant(
+        self,
+        combat_id: int,
+        character_id: str,
+        *,
+        rng=None,
+    ) -> CombatState:
+        return self._manager.add_combatant(combat_id, character_id, rng=rng)
+
     def load_combat(self, combat_id: int) -> CombatState:
         return self._manager.load_combat(combat_id)
 

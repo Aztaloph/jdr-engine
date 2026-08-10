@@ -11,6 +11,7 @@ from jdr_engine.core.events.bus import EventBus
 from jdr_engine.core.events.combat_events import (
     ActionConsumed,
     AttackRollResolved,
+    CombatantJoined,
     CombatEnded,
     CombatStarted,
     ConcentrationBroken,
@@ -64,6 +65,7 @@ from jdr_engine.rules.combat.damage import (
 )
 from jdr_engine.rules.combat.initiative import (
     InitiativeRollResult,
+    insert_combatant_into_initiative_order,
     next_active_turn_index,
     roll_initiative,
     sort_initiative_order,
@@ -225,16 +227,77 @@ class CombatManager:
         )
         return state
 
-    def add_combatant(self, combat_id: int, character_id: str) -> CombatState:
-        """Ajoute un PJ pendant ``preparing`` uniquement."""
+    def add_combatant(
+        self,
+        combat_id: int,
+        character_id: str,
+        *,
+        rng: Callable[[], int] | None = None,
+    ) -> CombatState:
+        """
+        Ajoute un PJ en ``preparing`` ou en ``active`` (initiative + ordre figé).
+
+        En combat actif, l'index de tour continue de désigner le même combattant.
+        """
         state = self._require_state(combat_id)
-        if state.status != "preparing":
-            raise CombatStatusError(
-                "Les combattants ne peuvent être ajoutés qu'en préparation."
-            )
+        if state.status == "ended":
+            raise CombatStatusError("Combat déjà terminé.")
+        for existing in state.combatants.values():
+            if existing.character_id == character_id:
+                raise CombatStatusError(
+                    f"Le personnage {character_id!r} participe déjà à cette rencontre."
+                )
+
         combatant = self._build_combatant(character_id)
+
+        if state.status == "preparing":
+            state.combatants[combatant.combatant_id] = combatant
+            self._persist(state)
+            return state
+
+        if state.status != "active":
+            raise CombatStatusError(
+                "Les combattants ne peuvent être ajoutés qu'en préparation ou "
+                "pendant un combat actif."
+            )
+        if not state.initiative_order:
+            raise CombatStatusError("Aucune séquence d'initiative établie.")
+
+        character = self._require_character(character_id)
+        sheet = build_character_sheet(character, self._engine)
+        roll = roll_initiative(combatant.combatant_id, sheet.initiative, rng=rng)
+        combatant = replace(combatant, initiative_total=roll.total)
+
+        current_turn_id = state.initiative_order[state.turn_index]
+        initiative_totals = {
+            cid: int(state.combatants[cid].initiative_total or 0)
+            for cid in state.initiative_order
+        }
+        new_order = insert_combatant_into_initiative_order(
+            state.initiative_order,
+            combatant.combatant_id,
+            roll.total,
+            initiative_totals=initiative_totals,
+        )
+        inserted_at = new_order.index(combatant.combatant_id)
+
         state.combatants[combatant.combatant_id] = combatant
+        state.initiative_order = new_order
+        state.turn_index = new_order.index(current_turn_id)
         self._persist(state)
+
+        self._bus.publish(
+            CombatantJoined(
+                ruleset_id=state.ruleset_id,
+                combat_id=state.combat_id or str(combat_id),
+                guild_id=state.guild_id or "",
+                channel_id=state.channel_id or "",
+                combatant_id=combatant.combatant_id,
+                character_id=character_id,
+                initiative_order=new_order,
+                inserted_at_index=inserted_at,
+            )
+        )
         return state
 
     def activate_combat(

@@ -265,10 +265,41 @@ class TestCombatManager(unittest.TestCase):
         state2 = self.manager.create_combat("guild1", "channel2", [self.bob.id])
         self.assertEqual(state2.status, "preparing")
 
-    def test_add_combatant_rejected_when_active(self) -> None:
-        state = self._create_and_activate()
-        with self.assertRaises(CombatStatusError):
-            self.manager.add_combatant(int(state.combat_id), self.alice.id)
+    def test_add_combatant_during_active_preserves_current_turn(self) -> None:
+        state = self._create_and_activate(rng=SequenceRng([10, 8]))
+        combat_id = int(state.combat_id)
+        current_id = state.initiative_order[state.turn_index]
+        carol = Character(
+            id="carol_join",
+            owner_id="1",
+            guild_id="guild1",
+            name="Carol",
+            race_id="human",
+            class_id="fighter",
+            level=1,
+            ability_scores=AbilityScores(
+                scores={
+                    "str": 14,
+                    "dex": 14,
+                    "con": 12,
+                    "int": 10,
+                    "wis": 10,
+                    "cha": 10,
+                }
+            ),
+            hp_current=10,
+            hp_max=10,
+        )
+        self.char_repo.save(carol)
+        updated = self.manager.add_combatant(
+            combat_id,
+            carol.id,
+            rng=SequenceRng([20]),
+        )
+        self.assertEqual(
+            updated.initiative_order[updated.turn_index],
+            current_id,
+        )
 
     def test_unknown_character_rejected(self) -> None:
         with self.assertRaises(CombatCharacterNotFoundError):

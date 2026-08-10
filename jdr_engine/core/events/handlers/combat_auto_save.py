@@ -6,6 +6,7 @@ from jdr_engine.core.events.bus import EventBus
 from jdr_engine.core.events.combat_events import (
     ActionConsumed,
     AttackRollResolved,
+    CombatantJoined,
     CombatEnded,
     CombatStarted,
     ConcentrationBroken,
@@ -24,6 +25,7 @@ from jdr_engine.persistence.combat_log_repository import SqliteCombatLogReposito
 
 COMBAT_EVENT_TYPES: tuple[type[DomainEvent], ...] = (
     CombatStarted,
+    CombatantJoined,
     CombatEnded,
     InitiativeRolled,
     TurnStarted,
