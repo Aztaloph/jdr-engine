@@ -43,6 +43,13 @@ export interface ActiveEffect {
   duration_rounds?: number;
 }
 
+/** Présent lorsque la requête inclut ``?viewer=character_id``. */
+export interface CombatViewerContext {
+  character_id: string;
+  combatant_id: string | null;
+  castable_spells: string[];
+}
+
 export interface CombatState {
   combat_id: number | null;
   status: CombatStatus;
@@ -57,6 +64,7 @@ export interface CombatState {
   active_effects: ActiveEffect[];
   started_at: string | null;
   ended_at: string | null;
+  viewer?: CombatViewerContext;
 }
 
 export interface ApiErrorPayload {

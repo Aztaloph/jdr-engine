@@ -3,6 +3,7 @@
     advanceCombatTurn,
     fetchCombatState,
     isLoadError,
+    postCombatCast,
     postWeaponAttack,
   } from "../api/combat";
   import type { CombatState, LoadError } from "../types/combat";
@@ -46,6 +47,17 @@
       attackerId !== "" &&
       targetId !== "" &&
       attackerId !== targetId &&
+      !loading,
+  );
+
+  const castableSpells = $derived(combat?.viewer?.castable_spells ?? []);
+
+  const canCastSpell = $derived(
+    combat !== null &&
+      combat.status === "active" &&
+      combat.viewer?.combatant_id != null &&
+      targetId !== "" &&
+      targetId !== combat.viewer.combatant_id &&
       !loading,
   );
 
@@ -171,6 +183,32 @@
       loading = false;
     }
   }
+
+  async function launchSpell(spellId: string) {
+    if (!canCastSpell || !combat?.viewer?.combatant_id) {
+      return;
+    }
+    error = null;
+    lastAttack = null;
+    loading = true;
+    try {
+      applyCombatState(
+        await postCombatCast(
+          combatId,
+          {
+            caster_id: combat.viewer.combatant_id,
+            spell_id: spellId,
+            target_ids: [targetId],
+          },
+          viewer,
+        ),
+      );
+    } catch (e) {
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      loading = false;
+    }
+  }
 </script>
 
 <h1>Combat — banc de test API</h1>
@@ -284,6 +322,32 @@
           {loading ? "Attaque…" : "Attaquer"}
         </button>
       </section>
+
+      {#if castableSpells.length > 0}
+        <section class="spell-panel">
+          <h2>Sorts (viewer)</h2>
+          <p class="hint">
+            Liste serveur <code>viewer.castable_spells</code> — cible via le
+            sélecteur ci-dessus (attaque).
+          </p>
+          <div class="spell-actions">
+            {#each castableSpells as spellId (spellId)}
+              <button
+                type="button"
+                onclick={() => launchSpell(spellId)}
+                disabled={!canCastSpell}
+              >
+                {loading ? "…" : spellId}
+              </button>
+            {/each}
+          </div>
+        </section>
+      {:else if viewer.trim()}
+        <p class="hint">
+          Aucun sort lançable pour ce viewer (hors tour, budget épuisé, ou
+          viewer absent du combat).
+        </p>
+      {/if}
     {:else if combat.status === "preparing"}
       <p class="hint">
         Combat en préparation — activez-le depuis le lobby ou via l'API.
