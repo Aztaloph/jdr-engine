@@ -168,6 +168,27 @@ class CombatService:
             combat_id, caster_id, target_id, locale=locale
         )
 
+    def cast_spell(
+        self,
+        combat_id: int,
+        caster_id: str,
+        spell_id: str,
+        target_ids: list[str],
+        *,
+        slot_level: int | None = None,
+        locale: str = "fr",
+        rng=None,
+    ) -> CombatState:
+        return self._manager.cast_spell(
+            combat_id,
+            caster_id,
+            spell_id,
+            target_ids,
+            slot_level=slot_level,
+            locale=locale,
+            rng=rng,
+        )
+
     def get_event_log(self, combat_id: int) -> list[CombatLogEntry]:
         """Retourne le journal append-only des événements publiés pour ce combat."""
         return self._log.list_for_combat(combat_id)

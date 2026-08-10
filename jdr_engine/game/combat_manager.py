@@ -80,6 +80,10 @@ from jdr_engine.rules.combat.saving_throw import (
     damage_after_save,
     save_succeeded,
 )
+from jdr_engine.rules.combat.overlay_cast import (
+    OVERLAY_CAST_REGISTRY,
+    UPCAST_COMBAT_SPELLS,
+)
 from jdr_engine.rules.combat.spell_resolution import (
     CombatSpellEffect,
     build_save_request,
@@ -981,6 +985,91 @@ class CombatManager:
         )
         self._persist(state)
         return self._require_state(combat_id)
+
+    def cast_spell(
+        self,
+        combat_id: int,
+        caster_id: str,
+        spell_id: str,
+        target_ids: list[str],
+        *,
+        slot_level: int | None = None,
+        locale: str = "fr",
+        rng: RandInt | None = None,
+    ) -> CombatState:
+        """
+        Lance un sort en combat — dispatch unifié overlay, attaque ou sauvegarde.
+
+        Les sorts overlay (registre ADR-006) délèguent aux méthodes dédiées ;
+        les autres sont routés via ``load_combat_spell`` et ``effect_type``.
+        """
+        if spell_id in OVERLAY_CAST_REGISTRY:
+            spec = OVERLAY_CAST_REGISTRY[spell_id]
+            if slot_level is not None and spell_id not in UPCAST_COMBAT_SPELLS:
+                raise SpellCastError(
+                    f"slot_level non pris en charge pour {spell_id!r} en combat."
+                )
+            count = len(target_ids)
+            if count < spec.min_targets or count > spec.max_targets:
+                raise SpellCastError(
+                    f"Sort {spell_id!r} : entre {spec.min_targets} et "
+                    f"{spec.max_targets} cible(s) attendue(s), {count} reçue(s)."
+                )
+            if spell_id == "hunters_mark":
+                return self.cast_hunters_mark(
+                    combat_id, caster_id, target_ids[0], locale=locale
+                )
+            if spell_id == "bless":
+                return self.cast_bless(
+                    combat_id, caster_id, target_ids, locale=locale
+                )
+            if spell_id == "hex":
+                return self.cast_hex(
+                    combat_id, caster_id, target_ids[0], locale=locale
+                )
+            if spell_id == "shield":
+                return self.cast_shield(combat_id, caster_id, locale=locale)
+
+        if slot_level is not None:
+            raise SpellCastError(
+                f"slot_level non pris en charge pour {spell_id!r} en combat."
+            )
+
+        spell = load_combat_spell(self._engine, spell_id, locale=locale)
+        if spell.effect_type == "spell_attack":
+            if len(target_ids) != 1:
+                raise SpellCastError(
+                    f"Attaque de sort : exactement 1 cible attendue, "
+                    f"{len(target_ids)} reçue(s)."
+                )
+            state, _outcome = self.cast_spell_attack(
+                combat_id,
+                caster_id,
+                target_ids[0],
+                spell_id,
+                locale=locale,
+                rng=rng,
+            )
+            return state
+        if spell.effect_type == "saving_throw":
+            if len(target_ids) != 1:
+                raise SpellCastError(
+                    f"Sort à sauvegarde : exactement 1 cible attendue, "
+                    f"{len(target_ids)} reçue(s)."
+                )
+            state, _outcome = self.cast_spell_save(
+                combat_id,
+                caster_id,
+                target_ids[0],
+                spell_id,
+                locale=locale,
+                rng=rng,
+            )
+            return state
+        raise SpellCastError(
+            f"Sort {spell_id!r} : effet {spell.effect_type!r} non lançable "
+            f"via cast combat."
+        )
 
     def consume_reaction(self, combat_id: int, combatant_id: str) -> CombatState:
         """Consomme la réaction hors du tour propre du combattant."""

@@ -857,5 +857,255 @@ class TestApiV1CombatRead(unittest.TestCase):
         self.assertEqual(_api_error(response)["code"], "VIEWER_NOT_IN_COMBAT")
 
 
+def _ranger(*, char_id: str, name: str = "Rodeur") -> Character:
+    return Character(
+        id=char_id,
+        owner_id="111",
+        guild_id="guild1",
+        name=name,
+        race_id="human",
+        class_id="ranger",
+        level=2,
+        ability_scores=AbilityScores(
+            scores={
+                "str": 12,
+                "dex": 16,
+                "con": 12,
+                "int": 10,
+                "wis": 14,
+                "cha": 10,
+            }
+        ),
+        hp_current=24,
+        hp_max=24,
+        choices={
+            "spellcasting": {
+                "spells_known": ["hunters_mark"],
+                "slots_used": {},
+            }
+        },
+    )
+
+
+def _cleric(*, char_id: str, name: str = "Clerc") -> Character:
+    return Character(
+        id=char_id,
+        owner_id="113",
+        guild_id="guild1",
+        name=name,
+        race_id="human",
+        class_id="cleric",
+        level=3,
+        ability_scores=AbilityScores(
+            scores={
+                "str": 10,
+                "dex": 10,
+                "con": 12,
+                "int": 10,
+                "wis": 16,
+                "cha": 10,
+            }
+        ),
+        hp_current=22,
+        hp_max=22,
+        choices={
+            "spellcasting": {
+                "cantrips_known": ["sacred_flame"],
+                "spells_prepared": ["bless", "burning_hands", "cure_wounds"],
+                "slots_used": {},
+            }
+        },
+    )
+
+
+class TestApiV1CombatCast(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = _engine()
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = init_database(Path(self._tmpdir.name) / "bot.db")
+        self.repo = SqliteCharacterRepository(self.db_path)
+        self.ranger = _ranger(char_id="cast_ranger", name="Alice")
+        self.cleric = _cleric(char_id="cast_cleric", name="Bob")
+        self.wizard = Character(
+            id="cast_wizard",
+            owner_id="112",
+            guild_id="guild1",
+            name="Charlie",
+            race_id="human",
+            class_id="wizard",
+            level=3,
+            ability_scores=AbilityScores(
+                scores={
+                    "str": 8,
+                    "dex": 14,
+                    "con": 12,
+                    "int": 16,
+                    "wis": 10,
+                    "cha": 10,
+                }
+            ),
+            hp_current=20,
+            hp_max=20,
+            choices={
+                "spellcasting": {
+                    "cantrips_known": ["fire_bolt"],
+                    "spells_prepared": ["magic_missile"],
+                    "slots_used": {},
+                }
+            },
+        )
+        for char in (self.ranger, self.cleric, self.wizard):
+            self.repo.save(char)
+        self.client = TestClient(
+            create_app(
+                engine=self.engine,
+                db_path=self.db_path,
+                combat_initiative_rng=InitiativeSequence([18, 14, 6]),
+            )
+        )
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _create_and_activate(self, channel_id: str = "cast-test") -> dict:
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [
+                    self.ranger.id,
+                    self.cleric.id,
+                    self.wizard.id,
+                ],
+                "channel_id": channel_id,
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        payload = created.json()
+        combat_id = payload["combat_id"]
+        activated = self.client.post(f"/v1/combats/{combat_id}/activate")
+        self.assertEqual(activated.status_code, 200)
+        return activated.json()
+
+    def _combatant_for_character(self, state: dict, character_id: str) -> str:
+        for combatant_id, block in state["combatants"].items():
+            if block["character_id"] == character_id:
+                return combatant_id
+        raise AssertionError(f"combattant absent pour {character_id}")
+
+    def test_cast_hunters_mark_returns_combat_state(self) -> None:
+        state = self._create_and_activate()
+        combat_id = state["combat_id"]
+        ranger_id = self._combatant_for_character(state, self.ranger.id)
+        wizard_id = self._combatant_for_character(state, self.wizard.id)
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": ranger_id,
+                "spell_id": "hunters_mark",
+                "target_ids": [wizard_id],
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "active")
+        self.assertTrue(
+            any(
+                effect["effect_id"] == "hunters_mark"
+                and effect["target_id"] == wizard_id
+                for effect in data["active_effects"]
+            )
+        )
+
+    def test_cast_bless_multi_target(self) -> None:
+        state = self._create_and_activate(channel_id="cast-bless")
+        combat_id = state["combat_id"]
+        cleric_id = self._combatant_for_character(state, self.cleric.id)
+        ranger_id = self._combatant_for_character(state, self.ranger.id)
+        wizard_id = self._combatant_for_character(state, self.wizard.id)
+
+        # Le clerc n'est pas forcément en tête — avancer jusqu'à son tour.
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.cleric.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": cleric_id,
+                "spell_id": "bless",
+                "target_ids": [ranger_id, wizard_id],
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        blessed_targets = {
+            effect["target_id"]
+            for effect in response.json()["active_effects"]
+            if effect["effect_id"] == "blessed"
+        }
+        self.assertEqual(blessed_targets, {ranger_id, wizard_id})
+
+    def test_cast_preparing_combat_rejected(self) -> None:
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [self.ranger.id, self.wizard.id],
+                "channel_id": "cast-preparing",
+            },
+        )
+        combat_id = created.json()["combat_id"]
+        ranger_id, wizard_id = list(created.json()["combatants"])
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": ranger_id,
+                "spell_id": "hunters_mark",
+                "target_ids": [wizard_id],
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(_api_error(response)["code"], "COMBAT_STATUS_INVALID")
+
+    def test_cast_invalid_target_count_rejected(self) -> None:
+        state = self._create_and_activate(channel_id="cast-invalid-targets")
+        combat_id = state["combat_id"]
+        ranger_id = self._combatant_for_character(state, self.ranger.id)
+        wizard_id = self._combatant_for_character(state, self.wizard.id)
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": ranger_id,
+                "spell_id": "hunters_mark",
+                "target_ids": [wizard_id, ranger_id],
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(_api_error(response)["code"], "SPELL_CAST_REJECTED")
+
+    def test_cast_unknown_combatant_404(self) -> None:
+        state = self._create_and_activate(channel_id="cast-unknown-combatant")
+        combat_id = state["combat_id"]
+        wizard_id = self._combatant_for_character(state, self.wizard.id)
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": "ghost_combatant",
+                "spell_id": "hunters_mark",
+                "target_ids": [wizard_id],
+            },
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(_api_error(response)["code"], "COMBATANT_NOT_FOUND")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

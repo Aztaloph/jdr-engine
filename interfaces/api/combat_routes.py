@@ -41,6 +41,7 @@ from jdr_engine.persistence.sqlite_character_repository import (
     SqliteCharacterRepository,
 )
 from jdr_engine.rules.combat.weapons import UnknownWeaponError, resolve_weapon
+from jdr_engine.rules.spellcasting.cast import SpellCastError
 
 
 class CreateCombatRequest(BaseModel):
@@ -55,6 +56,15 @@ class AttackRequestBody(BaseModel):
     attacker_id: str = Field(min_length=1)
     target_id: str = Field(min_length=1)
     weapon_id: str = Field(min_length=1)
+
+
+class CombatCastRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    caster_id: str = Field(min_length=1)
+    spell_id: str = Field(min_length=1)
+    target_ids: list[str] = Field(default_factory=list)
+    slot_level: int | None = Field(default=None, ge=1, le=9)
 
 
 def register_combat_routes(
@@ -320,6 +330,106 @@ def register_combat_routes(
             state=state,
             viewer=normalized_viewer,
         )
+
+    @app.post("/v1/combats/{combat_id}/cast")
+    def cast_spell_in_combat(
+        combat_id: int,
+        body: CombatCastRequestBody,
+        request: Request,
+        viewer: str | None = None,
+    ) -> dict:
+        try:
+            state = combat_service.load_combat(combat_id)
+        except CombatNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBAT_NOT_FOUND",
+                "Combat introuvable.",
+                details={"combat_id": combat_id},
+            ) from exc
+
+        normalized_viewer = _validated_viewer(state, viewer)
+
+        if body.caster_id not in state.combatants:
+            raise ApiError(
+                404,
+                "COMBATANT_NOT_FOUND",
+                "Combattant introuvable.",
+                details={"combatant_id": body.caster_id},
+            )
+        for target_id in body.target_ids:
+            if target_id not in state.combatants:
+                raise ApiError(
+                    404,
+                    "COMBATANT_NOT_FOUND",
+                    "Combattant introuvable.",
+                    details={"combatant_id": target_id},
+                )
+
+        rng = getattr(request.app.state, "combat_attack_rng", None)
+        try:
+            state = combat_service.cast_spell(
+                combat_id,
+                body.caster_id,
+                body.spell_id,
+                body.target_ids,
+                slot_level=body.slot_level,
+                locale=locale,
+                rng=rng,
+            )
+        except CombatNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBAT_NOT_FOUND",
+                "Combat introuvable.",
+                details={"combat_id": combat_id},
+            ) from exc
+        except CombatantNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBATANT_NOT_FOUND",
+                str(exc),
+            ) from exc
+        except ActionBudgetExhaustedError as exc:
+            raise ApiError(
+                409,
+                "ACTION_BUDGET_EXHAUSTED",
+                str(exc),
+            ) from exc
+        except NotCombatantTurnError as exc:
+            raise ApiError(
+                409,
+                "NOT_COMBATANT_TURN",
+                str(exc),
+            ) from exc
+        except CombatStatusError as exc:
+            raise ApiError(
+                409,
+                "COMBAT_STATUS_INVALID",
+                str(exc),
+            ) from exc
+        except CombatCharacterNotFoundError as exc:
+            raise ApiError(
+                404,
+                "CHARACTER_NOT_FOUND",
+                str(exc),
+            ) from exc
+        except SpellCastError as exc:
+            raise ApiError(
+                422,
+                "SPELL_CAST_REJECTED",
+                str(exc),
+                details={"spell_id": body.spell_id},
+            ) from exc
+        except ValueError as exc:
+            raise ApiError(
+                422,
+                "SPELL_CAST_REJECTED",
+                str(exc),
+                details={"spell_id": body.spell_id},
+            ) from exc
+
+        return _serialize_combat_state(state, viewer=normalized_viewer)
 
     @app.post("/v1/combats/{combat_id}/advance-turn")
     def advance_turn(
