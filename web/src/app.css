@@ -173,43 +173,6 @@ button:disabled {
   margin: 0;
 }
 
-.initiative-list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 var(--space-lg);
-}
-
-.initiative-list li {
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  padding: 0.65rem 0.85rem;
-  margin-bottom: var(--space-sm);
-  background: var(--color-bg-elevated);
-}
-
-.initiative-list li.current {
-  border-color: var(--color-accent);
-  background: var(--color-accent-muted);
-}
-
-.initiative-list li.inactive {
-  opacity: 0.55;
-}
-
-.combatant-name {
-  font-weight: 600;
-}
-
-.combatant-meta {
-  font-size: 0.88rem;
-  margin-top: 0.35rem;
-  color: var(--color-text-muted);
-}
-
-.combatant-meta span + span::before {
-  content: " · ";
-}
-
 .effects {
   margin-top: var(--space-lg);
 }
@@ -234,75 +197,6 @@ button:disabled {
   font-family: var(--font-mono);
   font-size: 0.88em;
   font-weight: normal;
-}
-
-.hud-current {
-  border: 1px solid var(--color-accent);
-  background: var(--color-accent-muted);
-  border-radius: var(--radius-md);
-  padding: var(--space-md) var(--space-lg);
-  margin-bottom: var(--space-lg);
-}
-
-.hud-current h2 {
-  font-size: 1rem;
-  margin: 0 0 0.35rem;
-}
-
-.attack-panel,
-.attack-result {
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  padding: var(--space-md) var(--space-lg);
-  margin-bottom: var(--space-lg);
-  background: var(--color-bg-elevated);
-}
-
-.attack-panel h2,
-.attack-result h2 {
-  font-size: 1rem;
-  margin: 0 0 var(--space-sm);
-}
-
-.attack-form {
-  display: grid;
-  gap: 0.65rem;
-  margin-bottom: var(--space-md);
-}
-
-.attack-form label {
-  margin-bottom: 0;
-}
-
-.attack-form select {
-  display: block;
-  width: 100%;
-  margin-top: var(--space-xs);
-  padding: 0.4rem 0.5rem;
-  font: inherit;
-}
-
-.result-dl {
-  margin: 0;
-  font-size: 0.95rem;
-}
-
-.result-dl div {
-  margin-bottom: 0.35rem;
-}
-
-.result-dl dt {
-  font-weight: 600;
-  display: inline;
-}
-
-.result-dl dt::after {
-  content: " : ";
-}
-
-.result-dl dd {
-  display: inline;
-  margin: 0;
 }
 
 .app-nav {
