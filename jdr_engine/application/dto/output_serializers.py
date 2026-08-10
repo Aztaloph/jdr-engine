@@ -43,6 +43,8 @@ from jdr_engine.game.combat_manager import AttackRollResolution, DamageResolutio
 from jdr_engine.rules.combat.attack_roll import AttackHitOutcome
 from jdr_engine.rules.rest.long_rest import LongRestResult
 from jdr_engine.rules.rest.short_rest import HitDieRoll, ShortRestResult
+from jdr_engine.domain.character.ability_scores import DEFAULT_ABILITY_IDS
+from jdr_engine.rules.derived_stats import ABILITY_FULL_LABELS_FR, skill_label_fr
 from jdr_engine.rules.spellcasting.cast import SpellAttackRoll, SpellCastResult
 
 __all__ = [
@@ -100,13 +102,24 @@ def character_sheet_to_dict(sheet: CharacterSheet) -> dict[str, Any]:
     Fiche personnage → dict JSON-sérialisable.
 
     Expose les composants, pas les ``@property`` d'assemblage
-    (``class_display``, ``hit_dice_display``). Exclus : ``saving_throws``
-    (chaînes), ``proficient_skill_labels``, ``armor_proficiencies_text``,
+    (``class_display``, ``hit_dice_display``).     Exclus : ``saving_throws`` (chaînes domaine), ``proficient_skill_labels``,
+    ``armor_proficiencies_text``,
     ``weapon_proficiencies_text``, ``spellcasting_summary``,
     ``class_features_lines``, ``damage_resistances`` (chaîne agrégée),
     ``innate_spells_text``, ``trait_ids`` (contient des libellés — bug connu,
     seul ``trait_names`` est exposé).
+
+    ``ability_labels`` : table id → libellé (locale fixe FR pour l'instant).
+    ``proficient_skills`` : remplace ``proficient_skill_ids`` (breaking change lot maîtrises).
     """
+    ability_labels = {
+        ability_id: ABILITY_FULL_LABELS_FR.get(ability_id, ability_id.upper())
+        for ability_id in DEFAULT_ABILITY_IDS
+    }
+    proficient_skills = [
+        {"id": skill_id, "label": skill_label_fr(skill_id)}
+        for skill_id in sheet.proficient_skill_ids
+    ]
     return {
         "character_id": sheet.character_id,
         "name": sheet.name,
@@ -122,6 +135,7 @@ def character_sheet_to_dict(sheet: CharacterSheet) -> dict[str, Any]:
         "ability_scores_base": dict(sheet.ability_scores_base),
         "ability_scores": dict(sheet.ability_scores),
         "ability_modifiers": dict(sheet.ability_modifiers),
+        "ability_labels": ability_labels,
         "proficiency_bonus": sheet.proficiency_bonus,
         "hit_die": sheet.hit_die,
         "hp_max": sheet.hp_max,
@@ -143,7 +157,7 @@ def character_sheet_to_dict(sheet: CharacterSheet) -> dict[str, Any]:
             }
             for entry in sheet.saving_throw_entries
         ],
-        "proficient_skill_ids": list(sheet.proficient_skill_ids),
+        "proficient_skills": proficient_skills,
         "armor_proficiencies": list(sheet.armor_proficiencies),
         "weapon_proficiencies": list(sheet.weapon_proficiencies),
         "damage_resistances": list(sheet.damage_resistance_ids),

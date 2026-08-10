@@ -4,15 +4,6 @@
 
 const STORAGE_KEY = "jdr_client_character_id";
 
-const ABILITY_LABELS = {
-  str: "FOR",
-  dex: "DEX",
-  con: "CON",
-  int: "INT",
-  wis: "SAG",
-  cha: "CHA",
-};
-
 const el = {
   characterId: document.getElementById("character-id"),
   btnLoad: document.getElementById("btn-load"),
@@ -218,13 +209,14 @@ function renderSpellcasting(sc) {
     </div>`;
 }
 
-function renderSavingThrows(entries) {
+function renderSavingThrows(entries, abilityLabels) {
   if (!Array.isArray(entries) || entries.length === 0) {
     return "<p style='color:#71717a;margin:0;'>—</p>";
   }
+  const labels = abilityLabels || {};
   return `<ul class="tag-list">${entries
     .map((entry) => {
-      const ability = ABILITY_LABELS[entry.ability_id] || entry.ability_id;
+      const ability = labels[entry.ability_id] || entry.ability_id;
       const mod = formatModifier(entry.modifier);
       const mark = entry.proficient ? " ●" : "";
       const cls = entry.proficient ? "proficient" : "";
@@ -233,8 +225,21 @@ function renderSavingThrows(entries) {
     .join("")}</ul>`;
 }
 
-function renderAbilities(scores, modifiers) {
+function renderProficientSkills(skills) {
+  if (!Array.isArray(skills) || skills.length === 0) {
+    return "<p style='color:#71717a;margin:0;'>—</p>";
+  }
+  return `<ul class="tag-list">${skills
+    .map(
+      (entry) =>
+        `<li title="${escapeHtml(String(entry.id || ""))}">${escapeHtml(String(entry.label || entry.id || "—"))}</li>`,
+    )
+    .join("")}</ul>`;
+}
+
+function renderAbilities(scores, modifiers, abilityLabels) {
   const ids = ["str", "dex", "con", "int", "wis", "cha"];
+  const labels = abilityLabels || {};
   const rows = ids
     .map((id) => {
       const score = scores && scores[id] != null ? scores[id] : "—";
@@ -242,7 +247,8 @@ function renderAbilities(scores, modifiers) {
         modifiers && modifiers[id] != null
           ? formatModifier(modifiers[id])
           : "—";
-      return `<dt>${escapeHtml(ABILITY_LABELS[id])}</dt><dd>${escapeHtml(String(score))} (${escapeHtml(mod)})</dd>`;
+      const label = labels[id] || id.toUpperCase();
+      return `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(score))} (${escapeHtml(mod)})</dd>`;
     })
     .join("");
   return `<dl>${rows}</dl>`;
@@ -282,15 +288,15 @@ function renderSheet(sheet) {
       </div>
       <div class="stat-block">
         <h3 style="margin:0 0 0.5rem;font-size:0.875rem;">Caractéristiques</h3>
-        ${renderAbilities(sheet.ability_scores, sheet.ability_modifiers)}
+        ${renderAbilities(sheet.ability_scores, sheet.ability_modifiers, sheet.ability_labels)}
       </div>
       <div class="stat-block">
         <h3 style="margin:0 0 0.5rem;font-size:0.875rem;">Jets de sauvegarde</h3>
-        ${renderSavingThrows(sheet.saving_throws)}
+        ${renderSavingThrows(sheet.saving_throws, sheet.ability_labels)}
       </div>
       <div class="stat-block">
         <h3 style="margin:0 0 0.5rem;font-size:0.875rem;">Compétences maîtrisées</h3>
-        ${renderTagList(sheet.proficient_skill_ids)}
+        ${renderProficientSkills(sheet.proficient_skills)}
       </div>
       <div class="stat-block">
         <h3 style="margin:0 0 0.5rem;font-size:0.875rem;">Maîtrises d'armures</h3>

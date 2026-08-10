@@ -156,6 +156,19 @@ La recherche du combat ouvert se fait **uniquement** par `character_id` — **sa
 
 **Alternative écartée** : fiche = SQLite seule pendant le combat — rejetée pour l'objectif parcours joueur unifié.
 
+### 2.6.1 Libellés fiche — caractéristiques et compétences (lot maîtrises)
+
+**Règle** (alignée §1.3) : les **ids** restent le contrat stable ; les **libellés** accompagnent lorsque le serveur seul peut les résoudre (pas d'introspection compendium en v1 — §1.2).
+
+| Champ | Forme | Notes |
+|---|---|---|
+| `ability_labels` | `dict[str, str]` | 6 clés (`str`…`cha`), libellés lisibles. Identique pour tous les personnages d'une locale — table de correspondance transportée par la fiche ; candidat futur `/v1/compendium`. |
+| `proficient_skills` | `[{ "id", "label" }]` | Remplace **`proficient_skill_ids`** (breaking change). Ordre stable = ordre moteur. Modificateurs de compétence **non** exposés (table `skill_id → ability_id` absente du moteur). |
+| `saving_throws` | inchangé | `{ ability_id, modifier, proficient }[]` — clés `ability_id` = mêmes ids que `ability_scores`. |
+| `proficiency_bonus` | inchangé | Entier. |
+
+**Exclus** (inchangé) : chaînes pré-formatées doublant un bloc structuré (`*_text`, `*_lines`, `spellcasting_summary`), `@property` recomposables (`class_display`, `hit_dice_display`), `trait_ids` (champ mal nommé), `proficient_skill_labels` (domaine — remplacé par `proficient_skills` côté DTO).
+
 ### 2.7 Attaque d'arme fusionnée (lot 2 — 2026-08-07)
 
 **Décision mainteneur** : **option A (fusionné)** — une requête API orchestre jet d'attaque et application des dégâts. Pas de modèle « attaque pending » dans le blob ; pas de second endpoint `apply-damage` pour les armes en lot 2.

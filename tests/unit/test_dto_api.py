@@ -166,6 +166,7 @@ class TestCharacterSheetDto(unittest.TestCase):
         data = character_sheet_to_dict(sheet)
         for excluded in (
             "proficient_skill_labels",
+            "proficient_skill_ids",
             "armor_proficiencies_text",
             "weapon_proficiencies_text",
             "spellcasting_summary",
@@ -176,6 +177,16 @@ class TestCharacterSheetDto(unittest.TestCase):
             "hit_dice_display",
         ):
             self.assertNotIn(excluded, data)
+
+    def test_sheet_dto_ability_labels(self):
+        sheet = build_character_sheet(_cleric(), self.engine)
+        data = character_sheet_to_dict(sheet)
+        self.assertEqual(
+            set(data["ability_labels"].keys()),
+            {"str", "dex", "con", "int", "wis", "cha"},
+        )
+        self.assertEqual(data["ability_labels"]["str"], "Force")
+        self.assertEqual(data["ability_labels"]["wis"], "Sagesse")
 
     def test_sheet_dto_saving_throws_structured(self):
         sheet = build_character_sheet(_cleric(), self.engine)
@@ -190,11 +201,15 @@ class TestCharacterSheetDto(unittest.TestCase):
         self.assertEqual(entries["wis"]["modifier"], 5)
         self.assertIsInstance(entries["str"]["modifier"], int)
 
-    def test_sheet_dto_proficiencies_are_ids(self):
+    def test_sheet_dto_proficient_skills(self):
         sheet = build_character_sheet(_cleric(), self.engine)
         data = character_sheet_to_dict(sheet)
-        self.assertIn("medicine", data["proficient_skill_ids"])
-        self.assertIn("religion", data["proficient_skill_ids"])
+        by_id = {entry["id"]: entry for entry in data["proficient_skills"]}
+        self.assertIn("medicine", by_id)
+        self.assertIn("religion", by_id)
+        self.assertEqual(by_id["medicine"]["label"], "Médecine")
+        self.assertEqual(by_id["religion"]["label"], "Religion")
+        self.assertNotIn("proficient_skill_ids", data)
         self.assertIn("light", data["armor_proficiencies"])
         self.assertIn("simple", data["weapon_proficiencies"])
 

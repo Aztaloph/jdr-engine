@@ -45,6 +45,16 @@ FIGHTING_STYLE_LABELS_FR: dict[str, str] = {
     "two_weapon_fighting": "Combat à deux armes",
 }
 
+# ── Libellés de caractéristiques (deux usages, ne pas fusionner ni recopier ailleurs) ──
+#
+# ABILITY_LABELS_FR — abréviations compactes (FOR, DEX…).
+#   Consommateurs : SavingThrowLine.format_display(), embeds Discord, wizards.
+#   Ne pas utiliser pour le DTO HTTP fiche — voir ABILITY_FULL_LABELS_FR.
+#
+# ABILITY_FULL_LABELS_FR — libellés complets (Force, Dextérité…).
+#   Consommateur canonique : character_sheet_to_dict → ability_labels (API GET …/sheet).
+#   Candidat futur /v1/compendium ; pas d'entités abilities/ dans le compendium aujourd'hui.
+#
 ABILITY_LABELS_FR: dict[str, str] = {
     "str": "FOR",
     "dex": "DEX",
@@ -52,6 +62,15 @@ ABILITY_LABELS_FR: dict[str, str] = {
     "int": "INT",
     "wis": "SAG",
     "cha": "CHA",
+}
+
+ABILITY_FULL_LABELS_FR: dict[str, str] = {
+    "str": "Force",
+    "dex": "Dextérité",
+    "con": "Constitution",
+    "int": "Intelligence",
+    "wis": "Sagesse",
+    "cha": "Charisme",
 }
 
 

@@ -23,7 +23,7 @@ venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 
 | Méthode | Route | Corps | Effet |
 |---|---|---|---|
-| GET | `/v1/characters/{id}/sheet` | — | Fiche calculée (fusionnée si combat ouvert) |
+| GET | `/v1/characters/{id}/sheet` | — | Fiche calculée (fusionnée si combat ouvert). Champs clés : `ability_labels`, `proficient_skills[]`, `saving_throws[]`, `proficiency_bonus`. **`proficient_skill_ids` retiré** — remplacé par `proficient_skills` `{ id, label }`. |
 | POST | `/v1/characters/{id}/cast` | `{"spell_id": "hex"}` | Lance un sort |
 | POST | `/v1/characters/{id}/short-rest` | `{"dice_to_spend": 2}` | Repos court |
 | POST | `/v1/characters/{id}/long-rest` | — | Repos long |
@@ -39,6 +39,17 @@ Exemple :
 ```bash
 curl http://127.0.0.1:8000/v1/characters/abc123/sheet
 curl -X POST http://127.0.0.1:8000/v1/characters/abc123/cast -H "Content-Type: application/json" -d "{\"spell_id\": \"hex\"}"
+```
+
+Extrait réponse fiche (lot maîtrises) :
+
+```json
+{
+  "ability_labels": { "str": "Force", "dex": "Dextérité" },
+  "proficient_skills": [{ "id": "medicine", "label": "Médecine" }],
+  "saving_throws": [{ "ability_id": "wis", "modifier": 5, "proficient": true }],
+  "proficiency_bonus": 2
+}
 ```
 
 ## Format d'erreur
