@@ -290,11 +290,15 @@ def combat_state_to_dict(
     state: CombatState,
     *,
     viewer: str | None = None,
+    viewer_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     État de rencontre → dict JSON-sérialisable (ressource API combat).
 
     ``viewer`` : ``None`` = vue MJ (intégralité) ; sinon ``character_id`` du joueur.
+
+    ``viewer_context`` : bloc ``viewer`` pré-calculé (``castable_spells``, etc.).
+    Requis côté API lorsque ``viewer`` est renseigné.
 
     Exclus : ``schema_version`` (version blob interne), ``guild_id`` /
     ``channel_id`` (projection persistence — hors vocabulaire client).
@@ -339,6 +343,11 @@ def combat_state_to_dict(
         "active_effects": active_effects,
         "started_at": state.started_at,
         "ended_at": state.ended_at,
+        **(
+            {"viewer": viewer_context}
+            if viewer is not None and viewer_context is not None
+            else {}
+        ),
     }
 
 

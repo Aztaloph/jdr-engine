@@ -1106,6 +1106,39 @@ class TestApiV1CombatCast(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(_api_error(response)["code"], "COMBATANT_NOT_FOUND")
 
+    def test_get_combat_viewer_includes_castable_spells(self) -> None:
+        state = self._create_and_activate(channel_id="cast-viewer-dto")
+        combat_id = state["combat_id"]
+
+        response = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.ranger.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("viewer", data)
+        self.assertEqual(data["viewer"]["character_id"], self.ranger.id)
+        self.assertIn("hunters_mark", data["viewer"]["castable_spells"])
+
+    def test_get_combat_viewer_empty_when_not_own_turn(self) -> None:
+        state = self._create_and_activate(channel_id="cast-viewer-turn")
+        combat_id = state["combat_id"]
+        cleric_id = self._combatant_for_character(state, self.cleric.id)
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.cleric.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        response = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.ranger.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["viewer"]["castable_spells"], [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

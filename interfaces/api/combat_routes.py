@@ -16,6 +16,7 @@ from interfaces.api.combat_scope import (
     resolve_create_scope,
 )
 from interfaces.api.errors import ApiError
+from jdr_engine.application.combat_view import resolve_viewer_context
 from jdr_engine.application.combat_service import CombatService
 from jdr_engine.application.dto.output_serializers import (
     WeaponAttackResult,
@@ -117,7 +118,18 @@ def register_combat_routes(
         viewer: str | None = None,
     ) -> dict:
         normalized = _validated_viewer(state, viewer)
-        return combat_state_to_dict(state, viewer=normalized)
+        viewer_context = None
+        if normalized is not None:
+            viewer_context = resolve_viewer_context(
+                state,
+                normalized,
+                character_repository,
+            )
+        return combat_state_to_dict(
+            state,
+            viewer=normalized,
+            viewer_context=viewer_context,
+        )
 
     def _combat_response(combat_id: int, viewer: str | None = None) -> dict:
         state = combat_service.load_combat(combat_id)
