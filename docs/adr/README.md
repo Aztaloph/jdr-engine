@@ -21,6 +21,7 @@ Chaque ADR documente :
 | [ADR-004](ADR-004-modele-combat.md) | Modèle de combat | Accepté |
 | [ADR-005](ADR-005-transition-fin-rencontre.md) | Transition fin de rencontre | Accepté |
 | [ADR-006](ADR-006-modele-effets-actifs.md) | Modèle d'effets actifs, horloge combat, registre | Accepté |
+| [ADR-007](ADR-007-stack-client-web.md) | Stack du client web | Accepté |
 
 ## Documents associés
 
@@ -34,7 +35,7 @@ Chaque ADR documente :
 ### ADRs futurs prévus
 
 - ADR-011 — Structure du Compendium (dossier par entité)
-- ADR-007 — Stratégie i18n (fichiers par locale)
+- ADR-012 — Stratégie i18n (fichiers par locale)
 - ADR-008 — Validation Compendium (strict vs warn)
 - ADR-009 — Versionnement des rulesets
 - ADR-010 — Système de plugins (sandbox)
