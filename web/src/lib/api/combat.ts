@@ -1,12 +1,33 @@
 import type { ApiErrorPayload, CombatState, LoadError } from "../types/combat";
 import type { WeaponAttackResult, WeaponId } from "../types/attack";
 
+const API_UNREACHABLE_MESSAGE =
+  "API injoignable — lancez uvicorn sur le port 8000 (voir web/README.md).";
+
+/** Erreurs proxy Vite quand uvicorn est arrêté (corps vide ou HTML). */
+function isGatewayUnreachable(status: number): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
+
+function gatewayLoadError(status: number): LoadError {
+  return {
+    kind: "network",
+    message:
+      status === 502
+        ? `${API_UNREACHABLE_MESSAGE} (proxy Vite : connexion refusée sur 127.0.0.1:8000).`
+        : API_UNREACHABLE_MESSAGE,
+  };
+}
+
 async function parseJsonResponse<T>(res: Response): Promise<T | LoadError> {
   const text = await res.text();
   let payload: unknown;
   try {
     payload = text ? JSON.parse(text) : null;
   } catch {
+    if (isGatewayUnreachable(res.status)) {
+      return gatewayLoadError(res.status);
+    }
     return {
       kind: "api",
       status: res.status,
@@ -27,6 +48,10 @@ async function parseJsonResponse<T>(res: Response): Promise<T | LoadError> {
       code: err.error.code,
       message: err.error.message,
     };
+  }
+
+  if (isGatewayUnreachable(res.status)) {
+    return gatewayLoadError(res.status);
   }
 
   return {

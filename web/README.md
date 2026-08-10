@@ -5,32 +5,33 @@ combat (`combat_state_to_dict`, `weapon_attack_result_to_dict`).
 
 ## Prérequis
 
-1. **API FastAPI** en marche sur `http://127.0.0.1:8000` :
+Node.js 18+ et npm. Deux **character_id** existants en base (ex. tests E2E ou Discord).
 
-   ```bash
-   venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
-   ```
+## Démarrage — deux terminaux obligatoires
 
-2. **Node.js** 18+ et npm.
+Le client Svelte (`5173`) appelle l'API via le proxy Vite (`/v1` → `127.0.0.1:8000`). **Sans uvicorn, le lobby renvoie HTTP 502** (connexion refusée — ce n'est pas une erreur métier).
 
-3. Deux **character_id** existants en base (ex. créés via tests E2E ou Discord).
+**Terminal 1 — racine du dépôt** (API sur le port **8000**) :
 
-## Installation
-
-```bash
-cd web
-npm install
+```powershell
+venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 ```
 
-## Lancement
+Attendre `Uvicorn running on http://127.0.0.1:8000` — laisser ce terminal ouvert.
 
-```bash
+**Terminal 2 — dossier `web/`** (client sur le port **5173**) :
+
+```powershell
+cd web
+npm install
 npm run dev
 ```
 
-Ouvrir l'URL affichée (souvent `http://localhost:5173`).
+Ouvrir **http://localhost:5173** (pas `:8000` — celui-ci sert le banc statique Python, distinct).
 
-Le proxy Vite redirige `/v1/*` vers `http://127.0.0.1:8000` — pas de configuration CORS Python requise.
+## Installation
+
+Une seule fois : `cd web && npm install`.
 
 ## Navigation (svelte-spa-router, hash)
 

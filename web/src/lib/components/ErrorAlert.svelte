@@ -29,7 +29,12 @@
       <span class="hint">Au moins deux combattants actifs requis pour activer.</span>
     {/if}
   {:else}
-    <strong>Réseau</strong>
+    <strong>API injoignable</strong>
     <span>{error.message}</span>
+    <span class="hint">
+      Terminal 1 (racine du dépôt) :
+      <code>venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app</code>
+      — puis relancez l'action.
+    </span>
   {/if}
 </div>
