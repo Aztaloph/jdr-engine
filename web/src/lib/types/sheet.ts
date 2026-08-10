@@ -1,6 +1,5 @@
 /**
  * Miroir TypeScript de ``character_sheet_to_dict`` (+ overlay combat §2.6).
- * L'écran lot 5 n'affiche qu'un sous-ensemble ; le surplus reste typé pour les lots suivants.
  */
 import type { ActiveEffect } from "./combat";
 
@@ -15,6 +14,17 @@ export const ABILITY_IDS: readonly AbilityId[] = [
   "cha",
 ] as const;
 
+export interface SavingThrowEntry {
+  ability_id: AbilityId;
+  modifier: number;
+  proficient: boolean;
+}
+
+export interface ProficientSkill {
+  id: string;
+  label: string;
+}
+
 export interface CharacterSheet {
   character_id: string;
   name: string;
@@ -26,9 +36,13 @@ export interface CharacterSheet {
   ac: number;
   ability_scores: Record<AbilityId, number>;
   ability_modifiers: Record<AbilityId, number>;
+  ability_labels: Record<AbilityId, string>;
+  proficiency_bonus: number;
+  saving_throws: SavingThrowEntry[];
+  proficient_skills: ProficientSkill[];
   /** Présent uniquement si le personnage est engagé dans un combat ouvert. */
   active_effects?: ActiveEffect[];
-  // Surplus API — non affiché lot 5
+  // Surplus API — non affiché lot maîtrises
   owner_id?: string;
   ruleset_id?: string;
   race_id?: string;
@@ -36,7 +50,6 @@ export interface CharacterSheet {
   xp?: number;
   image_url?: string | null;
   ability_scores_base?: Record<AbilityId, number>;
-  proficiency_bonus?: number;
   hit_die?: string;
   speed?: number;
   initiative?: number;
@@ -46,8 +59,6 @@ export interface CharacterSheet {
   specialization_label?: string | null;
   fighting_style_id?: string | null;
   fighting_style_label?: string | null;
-  saving_throws?: unknown[];
-  proficient_skill_ids?: string[];
   armor_proficiencies?: string[];
   weapon_proficiencies?: string[];
   damage_resistances?: string[];

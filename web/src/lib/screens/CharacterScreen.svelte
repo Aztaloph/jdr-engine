@@ -23,19 +23,26 @@
   let error = $state<LoadError | null>(null);
   let loading = $state(false);
 
-  const ABILITY_LABELS: Record<AbilityId, string> = {
-    str: "Force",
-    dex: "Dextérité",
-    con: "Constitution",
-    int: "Intelligence",
-    wis: "Sagesse",
-    cha: "Charisme",
-  };
+  const savingThrowsOrdered = $derived.by(() => {
+    if (!sheet) {
+      return [];
+    }
+    const byId = new Map(
+      sheet.saving_throws.map((entry) => [entry.ability_id, entry]),
+    );
+    return ABILITY_IDS.map((id) => byId.get(id)).filter(
+      (entry): entry is NonNullable<typeof entry> => entry !== undefined,
+    );
+  });
 
   $effect(() => {
     const id = characterId;
     void loadSheet(id);
   });
+
+  function abilityLabel(sheetData: CharacterSheet, abilityId: AbilityId): string {
+    return sheetData.ability_labels[abilityId] ?? abilityId.toUpperCase();
+  }
 
   function formatModifier(mod: number): string {
     return mod >= 0 ? `+${mod}` : String(mod);
@@ -86,6 +93,7 @@
     <h2>{sheet.name}</h2>
     <p class="sheet-meta">
       {sheet.race_name} · {sheet.class_name} · niv. {sheet.level}
+      · bonus de maîtrise {formatModifier(sheet.proficiency_bonus)}
     </p>
     <p class="hint mono">id {sheet.character_id}</p>
   </section>
@@ -109,7 +117,7 @@
     <ul class="ability-grid">
       {#each ABILITY_IDS as abilityId (abilityId)}
         <li>
-          <span class="ability-label">{ABILITY_LABELS[abilityId]}</span>
+          <span class="ability-label">{abilityLabel(sheet, abilityId)}</span>
           <span class="ability-score">{sheet.ability_scores[abilityId] ?? "—"}</span>
           <span class="ability-mod">
             {formatModifier(sheet.ability_modifiers[abilityId] ?? 0)}
@@ -117,6 +125,37 @@
         </li>
       {/each}
     </ul>
+  </section>
+
+  <section class="sheet-saves">
+    <h2>Jets de sauvegarde</h2>
+    <ul class="save-list">
+      {#each savingThrowsOrdered as entry (entry.ability_id)}
+        <li class:proficient={entry.proficient}>
+          <span class="save-label">{abilityLabel(sheet, entry.ability_id)}</span>
+          <span class="save-mod mono">{formatModifier(entry.modifier)}</span>
+          {#if entry.proficient}
+            <span class="save-mark" aria-label="maîtrise">●</span>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  </section>
+
+  <section class="sheet-skills">
+    <h2>Compétences maîtrisées</h2>
+    {#if sheet.proficient_skills.length === 0}
+      <p class="hint">Aucune compétence maîtrisée.</p>
+    {:else}
+      <ul class="skill-list">
+        {#each sheet.proficient_skills as skill (skill.id)}
+          <li>
+            <span>{skill.label}</span>
+            <span class="mono hint">({skill.id})</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </section>
 
   {#if sheet.active_effects !== undefined && sheet.active_effects.length > 0}

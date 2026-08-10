@@ -384,3 +384,55 @@ button.linkish:hover {
   font-weight: normal;
   margin-left: 0.35rem;
 }
+
+.sheet-saves,
+.sheet-skills {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.sheet-saves h2,
+.sheet-skills h2 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+
+.save-list,
+.skill-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.save-list li,
+.skill-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.save-list li:last-child,
+.skill-list li:last-child {
+  border-bottom: none;
+}
+
+.save-list li.proficient .save-label {
+  font-weight: 600;
+}
+
+.save-mod {
+  margin-left: auto;
+}
+
+.save-mark {
+  color: var(--current-border);
+  font-size: 0.75rem;
+}
+
+.skill-list li .mono {
+  font-size: 0.82em;
+}
