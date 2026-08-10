@@ -16,6 +16,20 @@
   import { navigateToCombat, viewerFromQuerystring } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
 
+  type JournalEntry =
+    | {
+        id: number;
+        kind: "attack";
+        summary: string;
+        detail: string;
+      }
+    | {
+        id: number;
+        kind: "spell";
+        summary: string;
+        detail: string;
+      };
+
   let {
     params = {},
     onRouteEvent: _onRouteEvent,
@@ -31,11 +45,12 @@
   let combat = $state<CombatState | null>(null);
   let error = $state<LoadError | null>(null);
   let loading = $state(false);
+  let journalSeq = $state(0);
+  let journal = $state<JournalEntry[]>([]);
 
   let attackerId = $state("");
   let targetId = $state("");
   let weaponId = $state<WeaponId>("longsword");
-  let lastAttack = $state<WeaponAttackResult | null>(null);
 
   const canAdvance = $derived(
     combat !== null && combat.status === "active" && !loading,
@@ -96,6 +111,10 @@
     }
   }
 
+  function combatantName(cid: string, state: CombatState): string {
+    return state.combatants[cid]?.display_name ?? cid;
+  }
+
   function combatantLabel(cid: string, state: CombatState): string {
     const c = state.combatants[cid];
     if (!c) {
@@ -104,17 +123,22 @@
     return `${c.display_name} (${cid})`;
   }
 
-  function formatBudget(
-    budget: NonNullable<
-      CombatState["combatants"][string]["action_budget"]
-    >,
+  function formatHp(c: CombatState["combatants"][string]): string {
+    if (c.hp_current === undefined) {
+      return "PV —";
+    }
+    const max = c.hp_max !== undefined ? `/${c.hp_max}` : "";
+    return `PV ${c.hp_current}${max}`;
+  }
+
+  function budgetLine(
+    label: string,
+    available: boolean | undefined,
   ): string {
-    const parts: string[] = [];
-    if (budget.has_action) parts.push("action");
-    if (budget.has_bonus_action) parts.push("bonus");
-    if (budget.has_reaction) parts.push("réaction");
-    if (budget.has_movement) parts.push("mouvement");
-    return parts.length ? parts.join(", ") : "aucune";
+    if (available === undefined) {
+      return `${label} : —`;
+    }
+    return `${label} : ${available ? "disponible" : "consommée"}`;
   }
 
   function applyCombatState(state: CombatState) {
@@ -122,14 +146,32 @@
     syncAttackSelectors(state);
   }
 
+  function pushJournal(entry: Omit<JournalEntry, "id">) {
+    journalSeq += 1;
+    journal = [{ ...entry, id: journalSeq }, ...journal];
+  }
+
   async function loadCombat(id: string, viewerParam: string) {
     error = null;
-    lastAttack = null;
     loading = true;
     try {
       applyCombatState(await fetchCombatState(id, viewerParam));
     } catch (e) {
       combat = null;
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function refreshCombat() {
+    if (!combatId) {
+      return;
+    }
+    loading = true;
+    try {
+      applyCombatState(await fetchCombatState(combatId, viewer));
+    } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
     } finally {
       loading = false;
@@ -149,7 +191,6 @@
       return;
     }
     error = null;
-    lastAttack = null;
     loading = true;
     try {
       applyCombatState(await advanceCombatTurn(combatId, viewer));
@@ -160,14 +201,39 @@
     }
   }
 
+  function describeAttack(
+    state: CombatState,
+    result: WeaponAttackResult,
+    attacker: string,
+    target: string,
+  ): { summary: string; detail: string } {
+    const atkName = combatantName(attacker, state);
+    const tgtName = combatantName(target, state);
+    const hit = result.attack.outcome.hit;
+    const summary = hit
+      ? `${atkName} touche ${tgtName} (${result.attack.d20.total} vs CA ${result.attack.outcome.target_ac})`
+      : `${atkName} manque ${tgtName} (${result.attack.d20.total} vs CA ${result.attack.outcome.target_ac})`;
+    let detail = `Arme · d20=${result.attack.d20.kept_value}, mod ${result.attack.d20.modifier >= 0 ? "+" : ""}${result.attack.d20.modifier}`;
+    if (result.damage) {
+      detail += ` · dégâts ${result.damage.total ?? result.damage.damage_dealt}`;
+      if (result.damage.hp_before !== undefined && result.damage.hp_after !== undefined) {
+        detail += ` · PV ${result.damage.hp_before}→${result.damage.hp_after}`;
+      }
+    }
+    return { summary, detail };
+  }
+
   async function launchAttack() {
-    if (!canAttack) {
+    if (!canAttack || !combat) {
       return;
     }
     error = null;
     loading = true;
+    const stateSnapshot = combat;
+    const atk = attackerId;
+    const tgt = targetId;
     try {
-      lastAttack = await postWeaponAttack(
+      const result = await postWeaponAttack(
         combatId,
         {
           attacker_id: attackerId,
@@ -176,8 +242,10 @@
         },
         viewer,
       );
+      const { summary, detail } = describeAttack(stateSnapshot, result, atk, tgt);
+      pushJournal({ kind: "attack", summary, detail });
+      await refreshCombat();
     } catch (e) {
-      lastAttack = null;
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
     } finally {
       loading = false;
@@ -189,20 +257,27 @@
       return;
     }
     error = null;
-    lastAttack = null;
     loading = true;
+    const casterId = combat.viewer.combatant_id;
+    const tgt = targetId;
     try {
-      applyCombatState(
-        await postCombatCast(
-          combatId,
-          {
-            caster_id: combat.viewer.combatant_id,
-            spell_id: spellId,
-            target_ids: [targetId],
-          },
-          viewer,
-        ),
+      const next = await postCombatCast(
+        combatId,
+        {
+          caster_id: casterId,
+          spell_id: spellId,
+          target_ids: [targetId],
+        },
+        viewer,
       );
+      applyCombatState(next);
+      const casterName = combatantName(casterId, next);
+      const targetName = combatantName(tgt, next);
+      pushJournal({
+        kind: "spell",
+        summary: `${casterName} lance ${spellId} sur ${targetName}`,
+        detail: `Sort overlay · cible ${tgt}`,
+      });
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
     } finally {
@@ -211,21 +286,21 @@
   }
 </script>
 
-<h1>Combat — banc de test API</h1>
+<h1>Combat</h1>
 <p class="hint">
-  combat_id <span class="mono">{combatId}</span> — proxy Vite vers
-  <code>http://127.0.0.1:8000</code>.
+  combat_id <span class="mono">{combatId}</span> — round et initiative mis à jour
+  après chaque action.
 </p>
 
 <fieldset>
   <legend>Vue</legend>
   <label>
-    viewer (character_id, vide = MJ)
+    viewer (character_id — requis pour les sorts du joueur)
     <input
       type="text"
       bind:value={viewer}
       oninput={onViewerInput}
-      placeholder="ex. e2e_alice"
+      placeholder="ex. a505d6d5 (rodeur)"
       autocomplete="off"
     />
   </label>
@@ -246,52 +321,99 @@
 
 {#if combat}
   {@const currentId = combat.current_combatant_id}
-  <section aria-live="polite">
-    <dl class="meta">
-      <div>
-        <dt>status</dt>
-        <dd>{combat.status}</dd>
-      </div>
-      <div>
-        <dt>round</dt>
-        <dd>{combat.round_number}</dd>
-      </div>
-      <div>
-        <dt>turn_index</dt>
-        <dd>{combat.turn_index}</dd>
-      </div>
-      <div>
-        <dt>current_combatant_id</dt>
-        <dd>{currentId ?? "—"}</dd>
-      </div>
-    </dl>
+  <section class="hud" aria-live="polite">
+    <header class="hud-header">
+      <span>Statut {combat.status}</span>
+      <span>Round {combat.round_number}</span>
+    </header>
 
-    {#if currentTurnCombatant}
-      <section class="hud-current">
-        <h2>Tour courant — {currentTurnCombatant.display_name}</h2>
-        <div class="combatant-meta">
-          {#if currentTurnCombatant.hp_current !== undefined}
-            <span>PV {currentTurnCombatant.hp_current}{currentTurnCombatant.hp_max !== undefined ? `/${currentTurnCombatant.hp_max}` : ""}</span>
-          {/if}
+    {#if currentTurnCombatant && currentId}
+      <section class="hud-turn" aria-label="Tour courant">
+        <h2 class="hud-turn-title">
+          Tour — {currentTurnCombatant.display_name}
+        </h2>
+        <div class="hud-turn-stats">
+          <span>{formatHp(currentTurnCombatant)}</span>
           {#if currentTurnCombatant.ac !== undefined}
             <span>CA {currentTurnCombatant.ac}</span>
           {/if}
-          {#if currentTurnCombatant.action_budget}
-            <span>Budget : {formatBudget(currentTurnCombatant.action_budget)}</span>
-          {:else}
-            <span class="hint">Budget non exposé pour ce combattant.</span>
-          {/if}
         </div>
+        {#if currentTurnCombatant.action_budget}
+          <div class="hud-budget">
+            <span>{budgetLine("Action", currentTurnCombatant.action_budget.has_action)}</span>
+            <span>{budgetLine("Action bonus", currentTurnCombatant.action_budget.has_bonus_action)}</span>
+          </div>
+        {:else}
+          <p class="hint">Budget d'action non exposé pour ce combattant.</p>
+        {/if}
+        {#if currentTurnCombatant.concentration_spell_name}
+          <p class="hud-concentration">
+            Concentration : {currentTurnCombatant.concentration_spell_name}
+            {#if currentTurnCombatant.concentration_spell_id}
+              <span class="mono">({currentTurnCombatant.concentration_spell_id})</span>
+            {/if}
+          </p>
+        {/if}
+      </section>
+    {/if}
+
+    <section class="hud-initiative" aria-label="Ordre d'initiative">
+      <h2 class="hud-section-title">Initiative</h2>
+      {#if combat.initiative_order.length === 0}
+        <p class="hint">Ordre vide.</p>
+      {:else}
+        <ol class="hud-initiative-list">
+          {#each combat.initiative_order as cid (cid)}
+            {@const c = combat.combatants[cid]}
+            <li class="hud-initiative-item" class:is-turn={cid === currentId} class:is-inactive={c && !c.is_active}>
+              <div class="hud-initiative-head">
+                <strong>{c?.display_name ?? cid}</strong>
+                {#if cid === currentId}
+                  <span class="hud-turn-badge">tour</span>
+                {/if}
+              </div>
+              {#if c}
+                <div class="hud-initiative-meta">
+                  <span>{formatHp(c)}</span>
+                  {#if c.ac !== undefined}
+                    <span>CA {c.ac}</span>
+                  {/if}
+                  {#if c.concentration_spell_name}
+                    <span>Conc. {c.concentration_spell_name}</span>
+                  {/if}
+                  {#if c.character_id}
+                    <a
+                      href="/character/{encodeURIComponent(c.character_id)}"
+                      use:link
+                      class="inline-link"
+                    >fiche</a>
+                  {/if}
+                </div>
+              {/if}
+            </li>
+          {/each}
+        </ol>
+      {/if}
+    </section>
+
+    {#if combat.active_effects.length > 0}
+      <section class="hud-effects" aria-label="Effets actifs">
+        <h2 class="hud-section-title">Effets actifs</h2>
+        <ul class="hud-effects-list">
+          {#each combat.active_effects as effect (effect.effect_id + effect.target_id + effect.applied_at_round)}
+            <li>
+              <span class="mono">{effect.effect_id}</span>
+              → {effect.target_id}
+              <span class="hint">(round {effect.applied_at_round}, {effect.expiry_mode})</span>
+            </li>
+          {/each}
+        </ul>
       </section>
     {/if}
 
     {#if combat.status === "active"}
-      <section class="attack-panel">
-        <h2>Attaque d'arme</h2>
-        <p class="hint">
-          attacker_id et target_id sont des <strong>combatant_id</strong> (pas
-          character_id).
-        </p>
+      <section class="hud-actions">
+        <h2 class="hud-section-title">Actions</h2>
         <div class="attack-form">
           <label>
             Attaquant
@@ -321,15 +443,8 @@
         <button type="button" onclick={launchAttack} disabled={!canAttack}>
           {loading ? "Attaque…" : "Attaquer"}
         </button>
-      </section>
 
-      {#if castableSpells.length > 0}
-        <section class="spell-panel">
-          <h2>Sorts (viewer)</h2>
-          <p class="hint">
-            Liste serveur <code>viewer.castable_spells</code> — cible via le
-            sélecteur ci-dessus (attaque).
-          </p>
+        {#if castableSpells.length > 0}
           <div class="spell-actions">
             {#each castableSpells as spellId (spellId)}
               <button
@@ -337,146 +452,176 @@
                 onclick={() => launchSpell(spellId)}
                 disabled={!canCastSpell}
               >
-                {loading ? "…" : spellId}
+                {spellId}
               </button>
             {/each}
           </div>
-        </section>
-      {:else if viewer.trim()}
-        <p class="hint">
-          Aucun sort lançable pour ce viewer (hors tour, budget épuisé, ou
-          viewer absent du combat).
-        </p>
-      {/if}
-    {:else if combat.status === "preparing"}
-      <p class="hint">
-        Combat en préparation — activez-le depuis le lobby ou via l'API.
-      </p>
-    {/if}
-
-    {#if lastAttack}
-      <section class="attack-result">
-        <h2>Dernier jet</h2>
-        <dl class="result-dl">
-          <div>
-            <dt>Jet d20</dt>
-            <dd>
-              {lastAttack.attack.d20.total}
-              (d20={lastAttack.attack.d20.kept_value}, mod {lastAttack.attack.d20.modifier >= 0 ? "+" : ""}{lastAttack.attack.d20.modifier})
-              {#if lastAttack.attack.d20.natural_20}
-                — critique naturel
-              {:else if lastAttack.attack.d20.natural_1}
-                — échec automatique
-              {/if}
-            </dd>
-          </div>
-          <div>
-            <dt>vs CA</dt>
-            <dd>{lastAttack.attack.outcome.target_ac}</dd>
-          </div>
-          <div>
-            <dt>Résultat</dt>
-            <dd>
-              {#if lastAttack.attack.outcome.hit}
-                Touché{#if lastAttack.attack.outcome.critical} (critique){/if}
-              {:else}
-                Manqué
-              {/if}
-            </dd>
-          </div>
-          {#if lastAttack.damage}
-            <div>
-              <dt>Dégâts</dt>
-              <dd>
-                {lastAttack.damage.total ?? lastAttack.damage.damage_dealt}
-                {#if lastAttack.damage.notation}
-                  ({lastAttack.damage.notation})
-                {/if}
-                {#if lastAttack.damage.hp_before !== undefined && lastAttack.damage.hp_after !== undefined}
-                  — PV {lastAttack.damage.hp_before} → {lastAttack.damage.hp_after}
-                {/if}
-              </dd>
-            </div>
-          {/if}
-          <div>
-            <dt>Cible (réponse)</dt>
-            <dd>
-              {lastAttack.target.combatant_id}
-              {#if lastAttack.target.hp_current !== undefined}
-                — PV {lastAttack.target.hp_current}/{lastAttack.target.hp_max ?? "?"}
-              {/if}
-            </dd>
-          </div>
-        </dl>
-        <p class="hint">Rechargez pour synchroniser l'état complet du combat.</p>
+        {:else if viewer.trim()}
+          <p class="hint">
+            Aucun sort lançable pour ce viewer (hors tour, budget, ou fiche).
+          </p>
+        {:else}
+          <p class="hint">
+            Renseignez viewer (character_id) pour voir les sorts lançables.
+          </p>
+        {/if}
       </section>
+    {:else if combat.status === "preparing"}
+      <p class="hint">Combat en préparation — activez depuis le lobby.</p>
     {/if}
 
-    <h2>Ordre d'initiative</h2>
-    {#if combat.initiative_order.length === 0}
-      <p class="hint">Ordre vide (combat non activé ?).</p>
-    {:else}
-      <ol class="initiative-list">
-        {#each combat.initiative_order as cid (cid)}
-          {@const c = combat.combatants[cid]}
-          <li
-            class:current={cid === currentId}
-            class:inactive={c && !c.is_active}
-          >
-            {#if c}
-              <div class="combatant-name">
-                {c.display_name}
-                <span class="mono">({cid})</span>
-                {#if c.character_id}
-                  <a
-                    href="/character/{encodeURIComponent(c.character_id)}"
-                    use:link
-                    class="inline-link"
-                  >fiche</a>
-                {/if}
-                {#if cid === currentId}
-                  <span aria-label="tour courant"> → tour</span>
-                {/if}
+    <section class="hud-journal" aria-label="Journal de session">
+      <h2 class="hud-section-title">Journal</h2>
+      {#if journal.length === 0}
+        <p class="hint">Aucune action enregistrée cette session.</p>
+      {:else}
+        <ol class="hud-journal-list">
+          {#each journal as entry (entry.id)}
+            <li class="hud-journal-item" class:spell={entry.kind === "spell"}>
+              <span class="hud-journal-kind">{entry.kind === "attack" ? "⚔" : "✨"}</span>
+              <div>
+                <div>{entry.summary}</div>
+                <div class="hint">{entry.detail}</div>
               </div>
-              <div class="combatant-meta">
-                <span>init {c.initiative_total ?? "—"}</span>
-                <span>{c.is_active ? "actif" : "inactif"}</span>
-                {#if c.hp_current !== undefined}
-                  <span>PV {c.hp_current}{c.hp_max !== undefined ? `/${c.hp_max}` : ""}</span>
-                {/if}
-                {#if c.ac !== undefined}
-                  <span>CA {c.ac}</span>
-                {/if}
-                {#if c.concentration_spell_name}
-                  <span>Conc. {c.concentration_spell_name}</span>
-                {/if}
-              </div>
-            {:else}
-              <div class="combatant-name">{cid}</div>
-              <p class="hint">Combattant absent de la map combatants.</p>
-            {/if}
-          </li>
-        {/each}
-      </ol>
-    {/if}
-
-    {#if combat.active_effects.length > 0}
-      <section class="effects">
-        <h2>Effets actifs</h2>
-        <ul>
-          {#each combat.active_effects as effect (effect.effect_id + effect.target_id + effect.applied_at_round)}
-            <li>
-              <span class="mono">{effect.effect_id}</span> — cible {effect.target_id}, source {effect.source_id},
-              round {effect.applied_at_round}
-              {#if effect.duration_rounds !== undefined}
-                , durée {effect.duration_rounds} ({effect.expiry_mode})
-              {:else}
-                ({effect.expiry_mode})
-              {/if}
             </li>
           {/each}
-        </ul>
-      </section>
-    {/if}
+        </ol>
+      {/if}
+    </section>
   </section>
 {/if}
+
+<style>
+  .hud {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .hud-header {
+    display: flex;
+    gap: 1.25rem;
+    font-weight: 600;
+  }
+
+  .hud-turn {
+    border: 2px solid var(--current-border, #3b82f6);
+    background: var(--current-bg, #3b82f622);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+  }
+
+  .hud-turn-title {
+    margin: 0 0 0.35rem;
+    font-size: 1.05rem;
+  }
+
+  .hud-turn-stats,
+  .hud-budget,
+  .hud-initiative-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem 1rem;
+    font-size: 0.95rem;
+  }
+
+  .hud-budget {
+    margin-top: 0.35rem;
+  }
+
+  .hud-concentration {
+    margin: 0.5rem 0 0;
+    font-size: 0.95rem;
+  }
+
+  .hud-section-title {
+    font-size: 0.95rem;
+    margin: 0 0 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    opacity: 0.85;
+  }
+
+  .hud-initiative-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .hud-initiative-item {
+    border: 1px solid var(--border, #8884);
+    border-radius: 6px;
+    padding: 0.55rem 0.75rem;
+  }
+
+  .hud-initiative-item.is-turn {
+    border-color: var(--current-border, #3b82f6);
+    background: var(--current-bg, #3b82f622);
+  }
+
+  .hud-initiative-item.is-inactive {
+    opacity: 0.55;
+  }
+
+  .hud-initiative-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .hud-turn-badge {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    background: var(--current-border, #3b82f6);
+    color: #fff;
+  }
+
+  .hud-effects-list,
+  .hud-journal-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .hud-effects-list li {
+    margin-bottom: 0.35rem;
+    font-size: 0.92rem;
+  }
+
+  .hud-actions {
+    border-top: 1px solid var(--border, #8884);
+    padding-top: 0.75rem;
+  }
+
+  .hud-journal-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .hud-journal-item {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem 0.65rem;
+    border-radius: 6px;
+    border: 1px solid var(--border, #8884);
+    font-size: 0.92rem;
+  }
+
+  .hud-journal-item.spell {
+    border-color: #7c3aed66;
+  }
+
+  .hud-journal-kind {
+    flex-shrink: 0;
+    width: 1.25rem;
+    text-align: center;
+  }
+</style>
