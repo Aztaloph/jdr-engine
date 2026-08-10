@@ -477,7 +477,7 @@ Parallèle **B4** (effets mécaniques) : registre curated `bless`/`hex` minimum 
 
 | Document | Pourquoi |
 |----------|----------|
-| `VISION.md` §5, §9, §10 | D3 combat API pure, ordre moteur → Web |
+| `VISION.md` §5, §9, §10 | D3 combat API pure ; D7 moteur prioritaire, client Web en parallèle |
 | `ROADMAP.md` C0–C7, B4 | Lots et statuts |
 | `docs/adr/ADR-003` | EventBus |
 | `docs/COMBAT_ROLL_PREREQUISITES.md` | Flags existants Discord |

@@ -743,7 +743,7 @@ B4 intervient **après C4** (boucle de tour jouable), comme **première validati
 
 - `docs/COMBAT_PREP_MODELE.md` — Inventaire pré-conception (état code, propositions)
 - `ROADMAP.md` — Lots C0–C7, Axe B4
-- `VISION.md` §5, §9, §10 — Combat API pure, ordre moteur → Web
+- `VISION.md` §5, §9, §10 — Combat API pure ; D7 moteur prioritaire, client Web en parallèle
 - [ADR-001](ADR-001%20-%20Pourquoi%20un%20Rule%20Engine.md) — Rule Engine
 - [ADR-003](ADR-003%20-%20Pourquoi%20utiliser%20un%20EventBus.md) — EventBus
 - `jdr_engine/domain/character/character.py` — Entité persistée

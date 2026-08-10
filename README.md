@@ -214,7 +214,7 @@ Le **Rule Engine** charge le Compendium YAML et calcule les stats dérivées —
 | **DTO + API HTTP** | ✅ | `output_serializers`, endpoints personnage, banc de test |
 | **Étape 4 — Combat moteur** | ✅ | C0–C7, ADR-004/005, persistance blob, journal événementiel |
 | **B4 — Effets de sorts** | 🚧 | `bless` / `hunters_mark` via registre (ADR-006) ; suite catalogue à venir |
-| **Client Web** | 🔜 | Interface de jeu principale (après stabilisation combat) |
+| **Client Web** | 🔜 | Interface de jeu principale (en parallèle du moteur — VISION D7, [ADR-007](docs/adr/ADR-007-stack-client-web.md)) |
 
 Documentation sorts → [`docs/SPELLS_INVENTORY.md`](docs/SPELLS_INVENTORY.md) · [`docs/SPELL_SCHEMA.md`](docs/SPELL_SCHEMA.md)
 

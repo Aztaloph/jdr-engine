@@ -316,7 +316,7 @@ C'est le seul indicateur qui compte pour valider une future offre premium. Toute
 
 ## 9. Roadmap actualisée
 
-Cette roadmap **prolonge** `ROADMAP.md` sans le contredire : les étapes et axes existants sont conservés, et le virage Web y est inséré à sa place logique. La règle d'ordonnancement est : **finir le moteur avant de bâtir le Web**, car le Web consomme le moteur.
+Cette roadmap **prolonge** `ROADMAP.md` sans le contredire : les étapes et axes existants sont conservés, et le virage Web y est inséré à sa place logique. La règle d'ordonnancement est celle de **D7** : le moteur reste la priorité de conception, le client web avance **en parallèle** (voir `ROADMAP.md`, section **Piste client Web**), le portage 2024 reste en fin de parcours.
 
 ### Séquencement
 
@@ -363,7 +363,7 @@ Traçabilité des choix arrêtés et, surtout, des **pistes écartées**, afin q
 | D4 | **Le moteur ne connaît aucune interface** ; tout passe par Services + EventBus. | Multi-interface sans modifier le moteur (ADR-003). |
 | D5 | **Moteur et fonctionnalités de jeu 100 % gratuits et auto-hébergeables.** | Confiance de la communauté ; éviter l'image « open source bridé ». |
 | D6 | **Le premium vend du confort et du contenu, pas des possibilités.** | Modèle VS Code / Home Assistant ; financement sain. |
-| D7 | **Finir le moteur avant de bâtir le Web ; portage 2024 en dernier.** | Le Web consomme le moteur ; éviter de porter des règles instables. |
+| D7 | **Moteur prioritaire ; client web en parallèle ; portage 2024 en dernier.** | En arbitrage moteur vs client, le moteur tranche. Depuis l'abandon de Discord, le retour visuel fait partie de la boucle de vérification : le Web progresse en parallèle, sans dicter d'API au seul motif de simplifier le front. |
 | D8 | **Les maquettes (tableau de bord, onglets, HUD) sont des specs UX du client Web.** | Elles décrivent la bonne UX, sur la bonne plateforme. |
 
 ### Pistes écartées
