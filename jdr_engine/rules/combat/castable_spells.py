@@ -7,7 +7,15 @@ from jdr_engine.domain.combat.action_budget import ActionKind
 from jdr_engine.domain.combat.combat_state import CombatState
 from jdr_engine.domain.combat.combatant import Combatant
 from jdr_engine.rules.combat.overlay_cast import OVERLAY_CAST_REGISTRY
-from jdr_engine.rules.spellcasting.state import spell_is_available
+from jdr_engine.rules.combat.spell_resolution import load_combat_spell
+from jdr_engine.rules.engine import RuleEngine
+from jdr_engine.rules.spellcasting.cast import SpellCastError
+from jdr_engine.rules.spellcasting.slots import get_remaining_slots
+from jdr_engine.rules.spellcasting.state import (
+    get_slots_used,
+    list_spell_autocomplete_ids,
+    spell_is_available,
+)
 
 
 def _current_turn_combatant_id(state: CombatState) -> str | None:
@@ -67,24 +75,79 @@ def _list_overlay_spell_ids(
     return castable
 
 
+def _list_resolved_combat_spell_ids(
+    state: CombatState,
+    combatant: Combatant,
+    character: Character,
+    engine: RuleEngine,
+    *,
+    locale: str = "fr",
+) -> list[str]:
+    """Attaques / sauvegardes combat (hors registre overlay ADR-006)."""
+    if state.status != "active" or not combatant.is_active:
+        return []
+
+    budget = combatant.action_budget
+    if budget is None or not budget.has_action:
+        return []
+
+    current_id = _current_turn_combatant_id(state)
+    if current_id != combatant.combatant_id:
+        return []
+
+    remaining = get_remaining_slots(
+        character.class_id,
+        character.level,
+        get_slots_used(character),
+    )
+    castable: list[str] = []
+    for spell_id in list_spell_autocomplete_ids(character):
+        if spell_id in OVERLAY_CAST_REGISTRY:
+            continue
+        if not spell_is_available(character, spell_id):
+            continue
+        try:
+            spell = load_combat_spell(engine, spell_id, locale=locale)
+        except SpellCastError:
+            continue
+        if spell.effect_type not in ("spell_attack", "saving_throw"):
+            continue
+        if spell.spell_level > 0 and not any(
+            rem > 0 and lvl >= spell.spell_level for lvl, rem in remaining.items()
+        ):
+            continue
+        castable.append(spell_id)
+    return castable
+
+
 def list_combat_castable_spell_ids(
     state: CombatState,
     combatant: Combatant,
     character: Character,
+    engine: RuleEngine,
+    *,
+    locale: str = "fr",
 ) -> list[str]:
     """
-    Sorts overlay du registre que ``combatant`` peut lancer immédiatement.
+    Sorts lançables immédiatement au tour propre : overlay + attaque/sauvegarde.
 
-    Conditions : combat ``active``, combattant actif, tour propre (sauf réaction
-    — non exposée tant que ``expose_in_castable`` est faux), sort disponible sur
-    la fiche, budget d'action suffisant.
+    Overlay : registre ADR-006 avec ``expose_in_castable`` ; résolus : compendium
+    C3b (``spell_attack`` / ``saving_throw``) disponibles sur la fiche.
     """
-    return _list_overlay_spell_ids(
+    overlay = _list_overlay_spell_ids(
         state,
         combatant,
         character,
         expose_in_castable=True,
     )
+    resolved = _list_resolved_combat_spell_ids(
+        state,
+        combatant,
+        character,
+        engine,
+        locale=locale,
+    )
+    return list(dict.fromkeys(overlay + resolved))
 
 
 def list_combat_castable_reaction_spell_ids(

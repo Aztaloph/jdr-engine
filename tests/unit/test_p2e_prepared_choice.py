@@ -16,6 +16,7 @@ from jdr_engine.rules.spellcasting.autocomplete_availability import (
 from jdr_engine.rules.spellcasting.prepared_choice import (
     PreparedChoiceError,
     apply_prepared_selection,
+    get_effective_prepared_quota,
     get_player_prepared_quota,
     get_prepared_spell_pool,
     is_prepared_rechoice_pending,
@@ -160,8 +161,8 @@ class TestPreparedChoiceValidation(unittest.TestCase):
 
     def test_refuse_cleric_domain_spell_in_selection(self):
         char = self._pending_cleric_quota_three()
-        quota = get_player_prepared_quota(char, engine=self.engine)
-        self.assertEqual(quota, 3)
+        quota = get_effective_prepared_quota(char, engine=self.engine)
+        self.assertEqual(quota, 2)
         pool = self._player_prepared_pool(char)
         with self.assertRaises(PreparedChoiceError) as ctx:
             validate_prepared_selection(
@@ -169,7 +170,11 @@ class TestPreparedChoiceValidation(unittest.TestCase):
                 self.engine,
                 ["bless", *pool[: quota - 1]],
             )
-        self.assertIn("domaine", str(ctx.exception).lower())
+        message = str(ctx.exception).lower()
+        self.assertTrue(
+            "domaine" in message or "hors liste" in message,
+            msg=message,
+        )
 
     def test_refuse_wrong_quota(self):
         char = self._pending_cleric()

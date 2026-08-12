@@ -9,7 +9,8 @@ from pathlib import Path
 from jdr_engine.core.events import EventBus
 from jdr_engine.domain.character.ability_scores import AbilityScores
 from jdr_engine.domain.character.character import Character
-from jdr_engine.game.combat_manager import CombatManager
+from jdr_engine.domain.combat.action_budget import ActionBudgetExhaustedError
+from jdr_engine.game.combat_manager import CombatManager, NotCombatantTurnError
 from jdr_engine.persistence.combat_repository import SqliteCombatRepository
 from jdr_engine.persistence.database import init_database
 from jdr_engine.persistence.sqlite_character_repository import (
@@ -113,26 +114,22 @@ class TestShieldCombat(unittest.TestCase):
     def test_shield_survives_intra_round_then_expires_at_next_round(self) -> None:
         alice_id, bob_id, combat_id = self._active_fight()
         state = self.manager.load_combat(combat_id)
-        self.assertEqual(state.round_number, 1)
         self.assertEqual(state.initiative_order[state.turn_index], alice_id)
 
+        # Réaction hors tour propre : tour de Bob
+        self.manager.advance_turn(combat_id)
         self.manager.cast_shield(combat_id, alice_id)
         self.assertTrue(_has_shield(self.manager, combat_id, alice_id))
 
         after_intra = self.manager.advance_turn(combat_id)
-        self.assertEqual(after_intra.round_number, 1)
-        self.assertEqual(after_intra.initiative_order[after_intra.turn_index], bob_id)
-        self.assertTrue(_has_shield(self.manager, combat_id, alice_id))
-
-        after_round = self.manager.advance_turn(combat_id)
-        self.assertEqual(after_round.round_number, 2)
-        self.assertEqual(
-            after_round.initiative_order[after_round.turn_index], alice_id
-        )
+        # Deux combattants : retour à Alice = round 2 ; effet posé round 1 expire
+        self.assertEqual(after_intra.round_number, 2)
+        self.assertEqual(after_intra.initiative_order[after_intra.turn_index], alice_id)
         self.assertFalse(_has_shield(self.manager, combat_id, alice_id))
 
     def test_shield_persists_in_blob_until_expiry(self) -> None:
         alice_id, _bob_id, combat_id = self._active_fight()
+        self.manager.advance_turn(combat_id)
         self.manager.cast_shield(combat_id, alice_id)
 
         loaded = self.manager.load_combat(combat_id)
@@ -149,11 +146,6 @@ class TestShieldCombat(unittest.TestCase):
         )
 
         self.manager.advance_turn(combat_id)
-        still_round_one = self.manager.load_combat(combat_id)
-        self.assertEqual(still_round_one.round_number, 1)
-        self.assertTrue(_has_shield(self.manager, combat_id, alice_id))
-
-        self.manager.advance_turn(combat_id)
         reloaded = self.manager.load_combat(combat_id)
         self.assertEqual(reloaded.round_number, 2)
         self.assertFalse(
@@ -162,6 +154,30 @@ class TestShieldCombat(unittest.TestCase):
                 for effect in reloaded.active_effects
             )
         )
+
+    def test_shield_on_own_turn_rejected(self) -> None:
+        alice_id, _bob_id, combat_id = self._active_fight()
+        with self.assertRaises(NotCombatantTurnError):
+            self.manager.cast_shield(combat_id, alice_id)
+
+    def test_shield_consumes_reaction_and_slot(self) -> None:
+        from jdr_engine.rules.spellcasting.state import get_slots_used
+
+        alice_id, _bob_id, combat_id = self._active_fight()
+        self.manager.advance_turn(combat_id)
+
+        self.manager.cast_shield(combat_id, alice_id)
+        alice = self.char_repo.get_by_id(self.alice.id)
+        assert alice is not None
+        self.assertEqual(get_slots_used(alice).get(1), 1)
+
+        state = self.manager.load_combat(combat_id)
+        budget = state.combatants[alice_id].action_budget
+        assert budget is not None
+        self.assertFalse(budget.has_reaction)
+
+        with self.assertRaises(ActionBudgetExhaustedError):
+            self.manager.cast_shield(combat_id, alice_id)
 
 
 if __name__ == "__main__":

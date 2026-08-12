@@ -71,6 +71,19 @@ class CombatCastRequestBody(BaseModel):
     slot_level: int | None = Field(default=None, ge=1, le=9)
 
 
+class CombatHealRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    combatant_id: str = Field(min_length=1)
+    hp_current: int | None = Field(default=None, ge=1)
+
+
+class CombatSyncRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    combatant_id: str = Field(min_length=1)
+
+
 def register_combat_routes(
     app: FastAPI,
     *,
@@ -473,6 +486,88 @@ def register_combat_routes(
                 "SPELL_CAST_REJECTED",
                 str(exc),
                 details={"spell_id": body.spell_id},
+            ) from exc
+
+        return _serialize_combat_state(state, viewer=normalized_viewer)
+
+    @app.post("/v1/combats/{combat_id}/heal")
+    def heal_combatant(
+        combat_id: int,
+        body: CombatHealRequestBody,
+        viewer: str | None = None,
+    ) -> dict:
+        try:
+            state = combat_service.load_combat(combat_id)
+        except CombatNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBAT_NOT_FOUND",
+                "Combat introuvable.",
+                details={"combat_id": combat_id},
+            ) from exc
+
+        normalized_viewer = _validated_viewer(state, viewer)
+
+        if body.combatant_id not in state.combatants:
+            raise ApiError(
+                404,
+                "COMBATANT_NOT_FOUND",
+                "Combattant introuvable.",
+                details={"combatant_id": body.combatant_id},
+            )
+
+        try:
+            state = combat_service.heal_combatant(
+                combat_id,
+                body.combatant_id,
+                hp_current=body.hp_current,
+            )
+        except CombatantNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBATANT_NOT_FOUND",
+                str(exc),
+            ) from exc
+
+        return _serialize_combat_state(state, viewer=normalized_viewer)
+
+    @app.post("/v1/combats/{combat_id}/sync-combatant")
+    def sync_combatant_from_sheet(
+        combat_id: int,
+        body: CombatSyncRequestBody,
+        viewer: str | None = None,
+    ) -> dict:
+        """Réaligne PV/CA du combattant sur la fiche (après repos long, etc.)."""
+        try:
+            state = combat_service.load_combat(combat_id)
+        except CombatNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBAT_NOT_FOUND",
+                "Combat introuvable.",
+                details={"combat_id": combat_id},
+            ) from exc
+
+        normalized_viewer = _validated_viewer(state, viewer)
+
+        if body.combatant_id not in state.combatants:
+            raise ApiError(
+                404,
+                "COMBATANT_NOT_FOUND",
+                "Combattant introuvable.",
+                details={"combatant_id": body.combatant_id},
+            )
+
+        try:
+            state = combat_service.refresh_combatant_from_sheet(
+                combat_id,
+                body.combatant_id,
+            )
+        except CombatantNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBATANT_NOT_FOUND",
+                str(exc),
             ) from exc
 
         return _serialize_combat_state(state, viewer=normalized_viewer)

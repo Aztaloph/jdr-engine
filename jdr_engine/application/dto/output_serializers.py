@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from jdr_engine.dice.d20 import D20RollRequest, D20RollResult
+from jdr_engine.domain.character.character import Character
 from jdr_engine.domain.character.character_sheet import (
     CharacterSheet,
     SpellcastingView,
@@ -46,6 +47,7 @@ from jdr_engine.rules.rest.short_rest import HitDieRoll, ShortRestResult
 from jdr_engine.domain.character.ability_scores import DEFAULT_ABILITY_IDS
 from jdr_engine.rules.derived_stats import ABILITY_FULL_LABELS_FR, skill_label_fr
 from jdr_engine.rules.spellcasting.cast import SpellAttackRoll, SpellCastResult
+from jdr_engine.rules.spellcasting.prepared_choice import PreparedChoiceContext
 
 __all__ = [
     "WeaponAttackResult",
@@ -53,6 +55,7 @@ __all__ = [
     "combat_state_to_dict",
     "viewer_combatant_id",
     "spellcasting_view_to_dict",
+    "prepared_spells_view_to_dict",
     "attack_roll_resolution_to_dict",
     "weapon_attack_result_to_dict",
     "spell_cast_result_to_dict",
@@ -77,9 +80,50 @@ def _slots_to_dict(slots: dict[int, int]) -> dict[str, int]:
     return {str(level): int(count) for level, count in sorted(slots.items())}
 
 
-def spellcasting_view_to_dict(view: SpellcastingView) -> dict[str, Any]:
+def spellcasting_view_to_dict(
+    view: SpellcastingView,
+    *,
+    prepared_rechoice_pending: bool | None = None,
+) -> dict[str, Any]:
     """Vue incantation pour DTO (fiche ou bloc ``viewer.spellcasting`` combat)."""
-    return _spellcasting_view_to_dict(view)
+    payload = _spellcasting_view_to_dict(view)
+    if prepared_rechoice_pending is not None:
+        payload["prepared_rechoice_pending"] = prepared_rechoice_pending
+    return payload
+
+
+def prepared_spells_view_to_dict(
+    character: Character,
+    *,
+    eligible: bool,
+    prepared_rechoice_pending: bool,
+    choice_context: PreparedChoiceContext | None = None,
+) -> dict[str, Any]:
+    """Contexte re-préparation sorts (clerc, druide, paladin, magicien)."""
+    from jdr_engine.rules.spellcasting.state import get_spells_prepared_list
+
+    payload: dict[str, Any] = {
+        "character_id": character.id,
+        "eligible": eligible,
+        "prepared_rechoice_pending": prepared_rechoice_pending,
+    }
+    if not eligible or choice_context is None:
+        return payload
+    payload.update(
+        {
+            "character_name": choice_context.character_name,
+            "class_id": choice_context.class_id,
+            "level": choice_context.level,
+            "quota": choice_context.quota,
+            "srd_quota": choice_context.srd_quota,
+            "pool": list(choice_context.pool),
+            "domain_spells": list(choice_context.domain_spells),
+            "spells_prepared": list(get_spells_prepared_list(character)),
+            "paladin_no_slots_notice": choice_context.paladin_no_slots_notice,
+            "pool_capped_notice": choice_context.pool_capped_notice,
+        }
+    )
+    return payload
 
 
 def _spellcasting_view_to_dict(view: SpellcastingView) -> dict[str, Any]:

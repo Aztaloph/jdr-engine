@@ -3,10 +3,17 @@
     advanceCombatTurn,
     closeCombat,
     fetchCombatState,
+    healCombatant,
     isLoadError,
     postCombatCast,
     postWeaponAttack,
+    syncCombatantFromSheet,
   } from "../api/combat";
+  import { postLongRest } from "../api/characters";
+  import {
+    applyPreparedSpells,
+    fetchPreparedSpells,
+  } from "../api/prepared_spells";
   import type {
     AbilityId,
     ActiveEffect,
@@ -15,6 +22,7 @@
     LoadError,
   } from "../types/combat";
   import { COMBAT_ABILITY_IDS } from "../types/combat";
+  import type { PreparedSpellsView } from "../types/prepared_spells";
   import {
     WEAPON_IDS,
     type WeaponAttackResult,
@@ -33,7 +41,7 @@
 
   type JournalEntry = {
     id: number;
-    kind: "attack" | "spell";
+    kind: "attack" | "spell" | "system";
     summary: string;
     detail: string;
     /** Heure locale du client au moment de l'action — cosmétique. */
@@ -80,6 +88,18 @@
     combat?.viewer?.castable_reaction_spells ?? [],
   );
   const viewerSpellcasting = $derived(combat?.viewer?.spellcasting ?? null);
+  const preparedRechoicePending = $derived(
+    viewerSpellcasting?.prepared_rechoice_pending === true,
+  );
+  let preparedContext = $state<PreparedSpellsView | null>(null);
+  let selectedPrepared = $state<string[]>([]);
+  let preparedLoading = $state(false);
+  const canConfirmPrepared = $derived(
+    preparedContext?.quota != null &&
+      selectedPrepared.length === preparedContext.quota &&
+      !loading &&
+      !preparedLoading,
+  );
   const spellSlotLevels = $derived.by(() => {
     const sc = viewerSpellcasting;
     if (!sc?.slots_max) {
@@ -120,11 +140,31 @@
       !loading,
   );
 
+  const canRevive = $derived(
+    combat !== null && combat.status === "active" && targetId !== "" && !loading,
+  );
+
+  const dmTargetCharacterId = $derived(
+    combat && targetId ? combat.combatants[targetId]?.character_id ?? "" : "",
+  );
+
   const currentTurnCombatant = $derived(
     combat && combat.current_combatant_id
       ? combat.combatants[combat.current_combatant_id]
       : undefined,
   );
+
+  /** Fiche droite : viewer joueur si défini, sinon combattant au tour. */
+  const sheetCombatant = $derived.by(() => {
+    if (!combat) {
+      return undefined;
+    }
+    const viewerCid = combat.viewer?.combatant_id;
+    if (viewer.trim() && viewerCid && combat.combatants[viewerCid]) {
+      return combat.combatants[viewerCid];
+    }
+    return currentTurnCombatant;
+  });
 
   /** Effets actifs regroupés par combattant ciblé — pour les badges des cartes. */
   const effectsByTarget = $derived.by(() => {
@@ -156,6 +196,17 @@
     const id = combatId;
     const v = initialViewer;
     void loadCombat(id, v);
+  });
+
+  $effect(() => {
+    const characterId = viewer.trim();
+    const pending = preparedRechoicePending;
+    if (characterId && pending) {
+      void loadPreparedContext(characterId);
+    } else {
+      preparedContext = null;
+      selectedPrepared = [];
+    }
   });
 
   function syncAttackSelectors(state: CombatState) {
@@ -238,6 +289,64 @@
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
     } finally {
+      loading = false;
+    }
+  }
+
+  async function loadPreparedContext(characterId: string) {
+    preparedLoading = true;
+    try {
+      const ctx = await fetchPreparedSpells(characterId);
+      preparedContext = ctx;
+      const pool = new Set(ctx.pool ?? []);
+      selectedPrepared = (ctx.spells_prepared ?? []).filter((id) => pool.has(id));
+    } catch (e) {
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      preparedLoading = false;
+    }
+  }
+
+  function togglePreparedSpell(spellId: string) {
+    if (!preparedContext?.quota) {
+      return;
+    }
+    if (selectedPrepared.includes(spellId)) {
+      selectedPrepared = selectedPrepared.filter((id) => id !== spellId);
+      return;
+    }
+    if (selectedPrepared.length >= preparedContext.quota) {
+      return;
+    }
+    selectedPrepared = [...selectedPrepared, spellId];
+  }
+
+  async function confirmPreparedSpells() {
+    if (!viewer.trim() || !canConfirmPrepared) {
+      return;
+    }
+    error = null;
+    preparedLoading = true;
+    loading = true;
+    const selection = [...selectedPrepared];
+    const name =
+      combat?.viewer?.combatant_id != null && combat
+        ? combatantName(combat.viewer.combatant_id, combat)
+        : viewer.trim();
+    try {
+      await applyPreparedSpells(viewer.trim(), { spell_ids: selection });
+      preparedContext = null;
+      selectedPrepared = [];
+      applyCombatState(await fetchCombatState(combatId, viewer));
+      pushJournal({
+        kind: "spell",
+        summary: `${name} — sorts préparés confirmés`,
+        detail: selection.join(", "),
+      });
+    } catch (e) {
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      preparedLoading = false;
       loading = false;
     }
   }
@@ -357,6 +466,58 @@
         kind: "spell",
         summary: `${casterName} lance ${spellId} sur ${targetName}`,
         detail: `Sort overlay · cible ${tgt}`,
+      });
+    } catch (e) {
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function reviveCombatant() {
+    if (!canRevive || !combat) {
+      return;
+    }
+    error = null;
+    loading = true;
+    const tgt = targetId;
+    try {
+      const next = await healCombatant(combatId, tgt, viewer);
+      applyCombatState(next);
+      pushJournal({
+        kind: "system",
+        summary: `${combatantName(tgt, next)} réanimé (PV max)`,
+        detail: "Outil MJ · heal",
+      });
+    } catch (e) {
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function runLongRestForTarget() {
+    if (!canRevive || !combat || !dmTargetCharacterId) {
+      return;
+    }
+    error = null;
+    loading = true;
+    const tgt = targetId;
+    const charId = dmTargetCharacterId;
+    try {
+      await postLongRest(charId);
+      const next = await syncCombatantFromSheet(combatId, tgt, viewer);
+      applyCombatState(next);
+      if (viewer.trim() === charId) {
+        await loadPreparedContext(charId);
+      }
+      pushJournal({
+        kind: "system",
+        summary: `Repos long — ${combatantName(tgt, next)}`,
+        detail:
+          viewer.trim() === charId
+            ? "Préparation de sorts disponible si classe préparateur."
+            : `Sélectionnez le viewer ${charId.slice(0, 8)}… pour préparer les sorts.`,
       });
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
@@ -549,12 +710,18 @@
 
       <div class="col col-right">
         <Panel title="Fiche active" icon="user">
-          {#if currentTurnCombatant}
+          {#if sheetCombatant}
             <div class="active-head">
-              <CharacterPortrait name={currentTurnCombatant.display_name} size={44} active />
+              <CharacterPortrait name={sheetCombatant.display_name} size={44} active />
               <div class="active-id">
-                <strong class="active-name">{currentTurnCombatant.display_name}</strong>
-                <span class="active-sub">Classe et niveau — à venir</span>
+                <strong class="active-name">{sheetCombatant.display_name}</strong>
+                <span class="active-sub">
+                  {#if viewer.trim() && combat?.viewer?.combatant_id && combat.current_combatant_id !== combat.viewer.combatant_id && currentTurnCombatant}
+                    Tour de {currentTurnCombatant.display_name}
+                  {:else}
+                    Classe et niveau — à venir
+                  {/if}
+                </span>
               </div>
             </div>
 
@@ -562,21 +729,21 @@
               <div class="vital">
                 <span class="vital-label">PV</span>
                 <span class="vital-value mono">
-                  {currentTurnCombatant.hp_current !== undefined
-                    ? `${currentTurnCombatant.hp_current}${currentTurnCombatant.hp_max !== undefined ? ` / ${currentTurnCombatant.hp_max}` : ""}`
+                  {sheetCombatant.hp_current !== undefined
+                    ? `${sheetCombatant.hp_current}${sheetCombatant.hp_max !== undefined ? ` / ${sheetCombatant.hp_max}` : ""}`
                     : "—"}
                 </span>
               </div>
               <div class="vital">
                 <span class="vital-label">CA</span>
                 <span class="vital-value mono">
-                  {currentTurnCombatant.ac !== undefined ? currentTurnCombatant.ac : "—"}
+                  {sheetCombatant.ac !== undefined ? sheetCombatant.ac : "—"}
                 </span>
               </div>
             </div>
 
-            {#if currentTurnCombatant.action_budget}
-              {@const b = currentTurnCombatant.action_budget}
+            {#if sheetCombatant.action_budget}
+              {@const b = sheetCombatant.action_budget}
               <div class="budget-chips">
                 <span class="budget-chip" class:used={!b.has_action}>Action</span>
                 <span class="budget-chip" class:used={!b.has_bonus_action}>Bonus</span>
@@ -587,29 +754,29 @@
               <p class="hint">Budget d'action non exposé pour ce combattant.</p>
             {/if}
 
-            {#if currentTurnCombatant.concentration_spell_name}
+            {#if sheetCombatant.concentration_spell_name}
               <p class="conc-line">
                 <Icon name="sparkle" size={12} />
-                Concentration : <strong>{currentTurnCombatant.concentration_spell_name}</strong>
-                {#if currentTurnCombatant.concentration_spell_id}
-                  <span class="mono conc-id">({currentTurnCombatant.concentration_spell_id})</span>
+                Concentration : <strong>{sheetCombatant.concentration_spell_name}</strong>
+                {#if sheetCombatant.concentration_spell_id}
+                  <span class="mono conc-id">({sheetCombatant.concentration_spell_id})</span>
                 {/if}
               </p>
             {/if}
 
-            {#if hasAbilityBlock(currentTurnCombatant)}
+            {#if hasAbilityBlock(sheetCombatant)}
               <div class="abilities">
                 {#each COMBAT_ABILITY_IDS as abilityId (abilityId)}
                   <div class="ability">
                     <span class="ability-name">
-                      {abilityLabel(currentTurnCombatant, abilityId)}
+                      {abilityLabel(sheetCombatant, abilityId)}
                     </span>
                     <span class="ability-value">
-                      {currentTurnCombatant.ability_scores?.[abilityId] ?? "—"}
+                      {sheetCombatant.ability_scores?.[abilityId] ?? "—"}
                     </span>
                     <span class="ability-mod">
                       {formatModifier(
-                        currentTurnCombatant.ability_modifiers?.[abilityId] ?? 0,
+                        sheetCombatant.ability_modifiers?.[abilityId] ?? 0,
                       )}
                     </span>
                   </div>
@@ -676,6 +843,14 @@
                 <Icon name="sparkle" size={12} />
                 Lancer un sort
               </h3>
+              {#if viewer.trim() && combat.viewer?.combatant_id}
+                <p class="spell-viewer-label">
+                  Personnage : <strong>{combatantName(combat.viewer.combatant_id, combat)}</strong>
+                  {#if !isViewerTurn}
+                    · hors tour (réactions disponibles)
+                  {/if}
+                </p>
+              {/if}
               {#if viewerSpellcasting && spellSlotLevels.length > 0}
                 <div class="spell-slots" aria-label="Emplacements de sorts">
                   {#each spellSlotLevels as level (level)}
@@ -747,6 +922,93 @@
                 Sorts combat (overlay v1) : <code>hunters_mark</code> rôdeur ·
                 <code>bless</code> clerc · <code>hex</code> · <code>shield</code> (réaction).
               </p>
+            </div>
+
+            {#if preparedRechoicePending && preparedContext?.pool}
+              <div class="action-sep" aria-hidden="true"></div>
+              <div class="action-block prepared-block">
+                <h3 class="action-title">
+                  <Icon name="sparkle" size={12} />
+                  Préparer les sorts
+                </h3>
+                <p class="prepared-banner">
+                  Repos long effectué — choisissez
+                  <strong>{preparedContext.quota}</strong> sort(s) préparé(s).
+                </p>
+                {#if preparedContext.pool_capped_notice}
+                  <p class="hint prepared-capped">{preparedContext.pool_capped_notice}</p>
+                {/if}
+                {#if preparedContext.domain_spells && preparedContext.domain_spells.length > 0}
+                  <p class="hint prepared-domain">
+                    Domaine (toujours préparés) :
+                    {#each preparedContext.domain_spells as spellId (spellId)}
+                      <code>{spellId}</code>
+                    {/each}
+                  </p>
+                {/if}
+                {#if preparedContext.paladin_no_slots_notice}
+                  <p class="hint">{preparedContext.paladin_no_slots_notice}</p>
+                {/if}
+                <p class="prepared-count">
+                  Sélection :
+                  <strong>{selectedPrepared.length}/{preparedContext.quota}</strong>
+                </p>
+                <div class="prepared-pool">
+                  {#each preparedContext.pool as spellId (spellId)}
+                    <button
+                      type="button"
+                      class="btn-prepared"
+                      class:btn-prepared-active={selectedPrepared.includes(spellId)}
+                      onclick={() => togglePreparedSpell(spellId)}
+                      disabled={preparedLoading ||
+                        loading ||
+                        (!selectedPrepared.includes(spellId) &&
+                          selectedPrepared.length >= (preparedContext.quota ?? 0))}
+                    >
+                      {spellId}
+                    </button>
+                  {/each}
+                </div>
+                <button
+                  type="button"
+                  class="btn-confirm-prepared"
+                  onclick={confirmPreparedSpells}
+                  disabled={!canConfirmPrepared}
+                >
+                  {preparedLoading ? "Enregistrement…" : "Confirmer la préparation"}
+                </button>
+              </div>
+            {/if}
+
+            <div class="action-sep" aria-hidden="true"></div>
+
+            <div class="action-block dm-tools">
+              <h3 class="action-title">
+                <Icon name="wand" size={12} />
+                Outils MJ (banc de test)
+              </h3>
+              <p class="hint dm-hint">
+                Utilise la cible sélectionnée ci-dessus. Pour la préparation de sorts :
+                choisissez le viewer du personnage, puis « Repos long ».
+              </p>
+              <div class="dm-actions">
+                <button
+                  type="button"
+                  class="btn-dm"
+                  onclick={reviveCombatant}
+                  disabled={!canRevive}
+                >
+                  Réanimer (PV max)
+                </button>
+                <button
+                  type="button"
+                  class="btn-dm"
+                  onclick={runLongRestForTarget}
+                  disabled={!canRevive || !dmTargetCharacterId}
+                >
+                  Repos long
+                </button>
+              </div>
             </div>
 
             <div class="action-sep" aria-hidden="true"></div>
@@ -1381,6 +1643,118 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-text-muted);
+  }
+
+  .spell-viewer-label {
+    margin: 0 0 0.35rem;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .prepared-block {
+    border: 1px solid rgb(245 158 11 / 0.45);
+    border-radius: var(--radius-md);
+    padding: 0.55rem 0.6rem;
+    background: rgb(245 158 11 / 0.06);
+  }
+
+  .dm-tools {
+    border: 1px dashed rgb(148 163 184 / 0.35);
+    border-radius: var(--radius-md);
+    padding: 0.55rem 0.6rem;
+  }
+
+  .dm-hint {
+    margin: 0 0 0.5rem;
+    font-size: 0.72rem;
+    line-height: 1.4;
+  }
+
+  .dm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+  }
+
+  .btn-dm {
+    flex: 1 1 auto;
+    min-width: 7rem;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.75rem;
+    border: 1px solid rgb(148 163 184 / 0.45);
+    border-radius: var(--radius-sm);
+    background: rgb(15 23 42 / 0.55);
+    color: var(--color-text);
+    cursor: pointer;
+  }
+
+  .btn-dm:hover:not(:disabled) {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .btn-dm:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .prepared-banner {
+    margin: 0 0 0.45rem;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--color-accent);
+  }
+
+  .prepared-domain code {
+    margin-right: 0.35rem;
+  }
+
+  .prepared-count {
+    margin: 0.35rem 0;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .prepared-pool {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .btn-prepared {
+    padding: 0.3rem 0.55rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: var(--color-bg-panel);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-sm);
+  }
+
+  .btn-prepared-active {
+    color: var(--color-accent);
+    background: rgb(245 158 11 / 0.12);
+    border-color: rgb(245 158 11 / 0.55);
+  }
+
+  .btn-confirm-prepared {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--color-bg-panel);
+    background: linear-gradient(180deg, var(--color-accent-hover), var(--color-accent));
+    border: none;
+    border-radius: var(--radius-md);
+  }
+
+  .btn-confirm-prepared:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .spell-slots {

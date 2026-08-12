@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from jdr_engine.application.combat_view import resolve_viewer_context
 from jdr_engine.application.dto.output_serializers import combat_state_to_dict
@@ -11,10 +12,17 @@ from jdr_engine.domain.character.character import Character
 from jdr_engine.domain.combat.action_budget import ActionBudget, fresh_action_budget
 from jdr_engine.domain.combat.combat_state import COMBAT_STATE_VERSION, CombatState
 from jdr_engine.domain.combat.combatant import Combatant
+from jdr_engine.rules import RuleEngine
 from jdr_engine.rules.combat.castable_spells import (
     list_combat_castable_reaction_spell_ids,
     list_combat_castable_spell_ids,
 )
+
+
+def _engine() -> RuleEngine:
+    if not Path("compendium/dnd5e").is_dir():
+        raise unittest.SkipTest("compendium absent")
+    return RuleEngine.load("dnd5e", validate=True, strict=True)
 
 
 def _ranger_character(*, char_id: str = "ranger_char") -> Character:
@@ -78,7 +86,11 @@ def _cleric_character(*, char_id: str = "cleric_char") -> Character:
     )
 
 
-def _wizard_character(*, char_id: str = "wizard_char") -> Character:
+def _wizard_character(
+    *,
+    char_id: str = "wizard_char",
+    prepared: list[str] | None = None,
+) -> Character:
     return Character(
         id=char_id,
         owner_id="114",
@@ -102,7 +114,7 @@ def _wizard_character(*, char_id: str = "wizard_char") -> Character:
         choices={
             "spellcasting": {
                 "cantrips_known": ["fire_bolt"],
-                "spells_prepared": ["shield"],
+                "spells_prepared": prepared if prepared is not None else ["shield"],
                 "slots_used": {},
             }
         },
@@ -110,6 +122,10 @@ def _wizard_character(*, char_id: str = "wizard_char") -> Character:
 
 
 class TestListCombatCastableSpellIds(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.engine = _engine()
+
     def _state(
         self,
         *,
@@ -151,18 +167,56 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
         )
         return state, ranger, cleric
 
+    def _wizard_state(self, *, turn_index: int = 1) -> tuple[CombatState, Combatant]:
+        ranger = Combatant(
+            combatant_id="rng11111",
+            display_name="Rodeur",
+            kind="player_character",
+            character_id="ranger_char",
+            hp_current=24,
+            hp_max=24,
+            ac=14,
+            is_active=True,
+            initiative_total=18,
+        ).with_action_budget(fresh_action_budget())
+        wizard = Combatant(
+            combatant_id="wiz33333",
+            display_name="Magicien",
+            kind="player_character",
+            character_id="wizard_char",
+            hp_current=20,
+            hp_max=20,
+            ac=12,
+            is_active=True,
+            initiative_total=6,
+        ).with_action_budget(fresh_action_budget())
+        state = CombatState(
+            schema_version=COMBAT_STATE_VERSION,
+            ruleset_id="dnd5e",
+            round_number=1,
+            turn_index=turn_index,
+            initiative_order=("rng11111", "wiz33333"),
+            combatants={"rng11111": ranger, "wiz33333": wizard},
+            status="active",
+            started_at="2026-08-10T00:00:00+00:00",
+        )
+        return state, wizard
+
     def test_ranger_on_own_turn_with_bonus_action(self) -> None:
         state, ranger, _ = self._state()
         char = _ranger_character()
         self.assertEqual(
-            list_combat_castable_spell_ids(state, ranger, char),
+            list_combat_castable_spell_ids(state, ranger, char, self.engine),
             ["hunters_mark"],
         )
 
     def test_ranger_not_on_turn_returns_empty(self) -> None:
         state, ranger, _ = self._state(turn_index=1)
         char = _ranger_character()
-        self.assertEqual(list_combat_castable_spell_ids(state, ranger, char), [])
+        self.assertEqual(
+            list_combat_castable_spell_ids(state, ranger, char, self.engine),
+            [],
+        )
 
     def test_ranger_without_bonus_action_returns_empty(self) -> None:
         budget = ActionBudget(
@@ -173,15 +227,31 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
         )
         state, ranger, _ = self._state(ranger_budget=budget)
         char = _ranger_character()
-        self.assertEqual(list_combat_castable_spell_ids(state, ranger, char), [])
+        self.assertEqual(
+            list_combat_castable_spell_ids(state, ranger, char, self.engine),
+            [],
+        )
 
     def test_cleric_bless_on_own_turn(self) -> None:
         state, _, cleric = self._state(turn_index=1)
         char = _cleric_character()
         self.assertEqual(
-            list_combat_castable_spell_ids(state, cleric, char),
-            ["bless"],
+            list_combat_castable_spell_ids(state, cleric, char, self.engine),
+            ["bless", "sacred_flame"],
         )
+
+    def test_wizard_includes_resolved_spells_on_own_turn(self) -> None:
+        state, wizard = self._wizard_state(turn_index=1)
+        char = _wizard_character(prepared=["magic_missile", "shield"])
+        castable = list_combat_castable_spell_ids(
+            state,
+            wizard,
+            char,
+            self.engine,
+        )
+        self.assertIn("fire_bolt", castable)
+        self.assertIn("magic_missile", castable)
+        self.assertNotIn("shield", castable)
 
     def test_preparing_combat_returns_empty(self) -> None:
         state, ranger, _ = self._state()
@@ -196,7 +266,10 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
             started_at=None,
         )
         char = _ranger_character()
-        self.assertEqual(list_combat_castable_spell_ids(state, ranger, char), [])
+        self.assertEqual(
+            list_combat_castable_spell_ids(state, ranger, char, self.engine),
+            [],
+        )
 
 
 class TestListCombatCastableReactionSpellIds(unittest.TestCase):
@@ -306,13 +379,7 @@ class TestResolveViewerContext(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        from pathlib import Path
-
-        from jdr_engine.rules import RuleEngine
-
-        if not Path("compendium/dnd5e").is_dir():
-            raise unittest.SkipTest("compendium absent")
-        cls.engine = RuleEngine.load("dnd5e", validate=True, strict=True)
+        cls.engine = _engine()
 
     def test_resolve_viewer_context_castable(self) -> None:
         state, ranger, _ = TestListCombatCastableSpellIds()._state()
@@ -345,6 +412,22 @@ class TestResolveViewerContext(unittest.TestCase):
         assert sc is not None
         self.assertIn("slots_max", sc)
         self.assertIn("slots_remaining", sc)
+
+    def test_resolve_viewer_context_wizard_own_turn_lists_attack_spells(self) -> None:
+        state, wizard = TestListCombatCastableSpellIds()._wizard_state(turn_index=1)
+        repo = self._Repo(
+            {
+                "wizard_char": _wizard_character(
+                    prepared=["magic_missile", "shield"],
+                )
+            }
+        )
+        ctx = resolve_viewer_context(state, "wizard_char", repo, self.engine)
+        assert ctx is not None
+        self.assertIn("fire_bolt", ctx["castable_spells"])
+        self.assertIn("magic_missile", ctx["castable_spells"])
+        self.assertEqual(ctx["castable_reaction_spells"], [])
+        self.assertEqual(ctx["combatant_id"], wizard.combatant_id)
 
     def test_unknown_viewer_in_combat_returns_empty_castable(self) -> None:
         state, _, _ = TestListCombatCastableSpellIds()._state()

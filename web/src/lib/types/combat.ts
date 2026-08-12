@@ -74,6 +74,10 @@ export interface SpellcastingView {
   cantrips_known?: string[];
   spells_prepared?: string[];
   spells_known?: string[];
+  spellbook?: string[];
+  domain_spells?: string[];
+  /** True après repos long — re-préparation requise (clerc, druide, paladin, magicien). */
+  prepared_rechoice_pending?: boolean;
 }
 
 /** Présent lorsque la requête inclut ``?viewer=character_id``. */

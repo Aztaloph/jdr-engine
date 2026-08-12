@@ -254,6 +254,36 @@ class TestCombatSpells(unittest.TestCase):
         save_events = [e for e in self.events if isinstance(e, SavingThrowResolved)]
         self.assertEqual(len(save_events), 1)
 
+    def test_magic_missile_auto_hit_via_cast_dispatch(self) -> None:
+        combat_id, ids = self._active_two(self.wizard.id, self.target.id)
+        caster_id = ids[self.wizard.id]
+        target_id = ids[self.target.id]
+        hp_before = self.manager.load_combat(combat_id).combatants[target_id].hp_current
+
+        state = self.manager.cast_spell(
+            combat_id,
+            caster_id,
+            "magic_missile",
+            [target_id],
+            rng=RandSequence([2, 3, 4]),
+        )
+        target = state.combatants[target_id]
+        self.assertEqual(target.hp_current, hp_before - 12)
+        self.assertIsInstance(self.events[0], SpellCast)
+
+    def test_heal_combatant_revives_inactive(self) -> None:
+        combat_id, ids = self._active_two(self.wizard.id, self.target.id)
+        target_id = ids[self.target.id]
+        state, _damage = self.manager.apply_damage(
+            combat_id, target_id, damage_amount=999, source_id=ids[self.wizard.id]
+        )
+        self.assertFalse(state.combatants[target_id].is_active)
+
+        healed = self.manager.heal_combatant(combat_id, target_id)
+        combatant = healed.combatants[target_id]
+        self.assertTrue(combatant.is_active)
+        self.assertEqual(combatant.hp_current, combatant.hp_max)
+
     def test_hunters_mark_concentration_and_mark_persist(self) -> None:
         combat_id, ids = self._active_two(self.ranger.id, self.target.id)
         caster_id = ids[self.ranger.id]

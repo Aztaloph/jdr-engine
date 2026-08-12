@@ -189,6 +189,24 @@ class CombatService:
             rng=rng,
         )
 
+    def heal_combatant(
+        self,
+        combat_id: int,
+        combatant_id: str,
+        *,
+        hp_current: int | None = None,
+    ) -> CombatState:
+        return self._manager.heal_combatant(
+            combat_id, combatant_id, hp_current=hp_current
+        )
+
+    def refresh_combatant_from_sheet(
+        self,
+        combat_id: int,
+        combatant_id: str,
+    ) -> CombatState:
+        return self._manager.refresh_combatant_from_sheet(combat_id, combatant_id)
+
     def get_event_log(self, combat_id: int) -> list[CombatLogEntry]:
         """Retourne le journal append-only des événements publiés pour ce combat."""
         return self._log.list_for_combat(combat_id)

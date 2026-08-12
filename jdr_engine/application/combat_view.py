@@ -16,6 +16,7 @@ from jdr_engine.rules.combat.castable_spells import (
     list_combat_castable_spell_ids,
 )
 from jdr_engine.rules.derived_stats import ABILITY_FULL_LABELS_FR
+from jdr_engine.rules.spellcasting.prepared_choice import is_prepared_rechoice_pending
 
 
 def resolve_viewer_context(
@@ -56,7 +57,13 @@ def resolve_viewer_context(
     castable_reaction: list[str] = []
     spellcasting: dict[str, Any] | None = None
     if character is not None:
-        castable = list_combat_castable_spell_ids(state, combatant, character)
+        castable = list_combat_castable_spell_ids(
+            state,
+            combatant,
+            character,
+            engine,
+            locale=locale,
+        )
         castable_reaction = list_combat_castable_reaction_spell_ids(
             state,
             combatant,
@@ -64,7 +71,10 @@ def resolve_viewer_context(
         )
         sheet = build_character_sheet(character, engine, locale=locale)
         if sheet.spellcasting is not None:
-            spellcasting = spellcasting_view_to_dict(sheet.spellcasting)
+            spellcasting = spellcasting_view_to_dict(
+                sheet.spellcasting,
+                prepared_rechoice_pending=is_prepared_rechoice_pending(character),
+            )
 
     return {
         "character_id": viewer_character_id,

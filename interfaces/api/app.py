@@ -25,6 +25,7 @@ from jdr_engine.core.events.bus import EventBus
 
 from jdr_engine.application.dto.output_serializers import (
     long_rest_result_to_dict,
+    prepared_spells_view_to_dict,
     short_rest_result_to_dict,
     spell_cast_result_to_dict,
 )
@@ -38,6 +39,13 @@ from jdr_engine.persistence.sqlite_character_repository import (
 from jdr_engine.rules.engine import RuleEngine
 from jdr_engine.rules.rest import RestError, apply_long_rest, apply_short_rest
 from jdr_engine.rules.spellcasting.cast import SpellCastError, cast_spell
+from jdr_engine.rules.spellcasting.prepared_choice import (
+    PreparedChoiceError,
+    apply_prepared_selection,
+    build_prepared_choice_context,
+    is_prepared_rechoice_pending,
+    requires_prepared_rechoice_class,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -48,6 +56,10 @@ class CastSpellRequest(BaseModel):
 
 class ShortRestRequest(BaseModel):
     dice_to_spend: int = Field(ge=0)
+
+
+class PreparedSpellsRequest(BaseModel):
+    spell_ids: list[str] = Field(min_length=0)
 
 
 def create_app(
@@ -189,6 +201,57 @@ def create_app(
             ) from exc
         repository.save(updated)
         return long_rest_result_to_dict(result)
+
+    @app.get("/v1/characters/{character_id}/prepared-spells")
+    def get_prepared_spells(character_id: str) -> dict:
+        character = _load_character(character_id)
+        eligible = requires_prepared_rechoice_class(character.class_id)
+        pending = is_prepared_rechoice_pending(character) if eligible else False
+        ctx = (
+            build_prepared_choice_context(character, engine=engine)
+            if eligible
+            else None
+        )
+        return prepared_spells_view_to_dict(
+            character,
+            eligible=eligible,
+            prepared_rechoice_pending=pending,
+            choice_context=ctx,
+        )
+
+    @app.put("/v1/characters/{character_id}/prepared-spells")
+    def put_prepared_spells(
+        character_id: str,
+        body: PreparedSpellsRequest,
+    ) -> dict:
+        character = _load_character(character_id)
+        if not requires_prepared_rechoice_class(character.class_id):
+            raise ApiError(
+                409,
+                "PREPARED_CHOICE_REJECTED",
+                "Cette classe ne prépare pas ses sorts de cette manière.",
+            )
+        try:
+            updated = apply_prepared_selection(
+                character,
+                engine,
+                body.spell_ids,
+                require_pending=True,
+            )
+        except PreparedChoiceError as exc:
+            raise ApiError(
+                409,
+                "PREPARED_CHOICE_REJECTED",
+                str(exc),
+            ) from exc
+        repository.save(updated)
+        ctx = build_prepared_choice_context(updated, engine=engine)
+        return prepared_spells_view_to_dict(
+            updated,
+            eligible=True,
+            prepared_rechoice_pending=False,
+            choice_context=ctx,
+        )
 
     register_combat_routes(
         app,

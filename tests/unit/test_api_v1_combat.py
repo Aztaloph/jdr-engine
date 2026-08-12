@@ -1204,6 +1204,91 @@ class TestApiV1CombatCast(unittest.TestCase):
         self.assertIn("1", sc["slots_remaining"])
         self.assertGreater(sc["slots_max"]["1"], 0)
 
+    def test_get_combat_wizard_own_turn_includes_attack_spells(self) -> None:
+        state = self._create_and_activate(channel_id="cast-viewer-wizard-spells")
+        combat_id = state["combat_id"]
+        wizard_id = self._combatant_for_character(state, self.wizard.id)
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.wizard.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        response = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.wizard.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        viewer = response.json()["viewer"]
+        self.assertEqual(viewer["combatant_id"], wizard_id)
+        self.assertIn("fire_bolt", viewer["castable_spells"])
+        self.assertIn("magic_missile", viewer["castable_spells"])
+        self.assertEqual(viewer["castable_reaction_spells"], [])
+
+    def test_post_cast_magic_missile_auto_hit(self) -> None:
+        state = self._create_and_activate(channel_id="cast-magic-missile")
+        combat_id = state["combat_id"]
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+        target_cid = self._combatant_for_character(state, self.cleric.id)
+        hp_before = state["combatants"][target_cid]["hp_current"]
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.wizard.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": wizard_cid,
+                "spell_id": "magic_missile",
+                "target_ids": [target_cid],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        target = response.json()["combatants"][target_cid]
+        self.assertLess(target["hp_current"], hp_before)
+
+    def test_post_heal_revives_combatant(self) -> None:
+        from jdr_engine.core.events.bus import EventBus
+        from jdr_engine.game.combat_manager import CombatManager
+        from jdr_engine.persistence.combat_repository import SqliteCombatRepository
+
+        state = self._create_and_activate(channel_id="cast-heal")
+        combat_id = int(state["combat_id"])
+        cleric_cid = self._combatant_for_character(state, self.cleric.id)
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+
+        manager = CombatManager(
+            EventBus(),
+            SqliteCombatRepository(self.db_path),
+            self.repo,
+            self.engine,
+        )
+        damaged, _resolution = manager.apply_damage(
+            combat_id,
+            cleric_cid,
+            damage_amount=999,
+            source_id=wizard_cid,
+        )
+        self.assertFalse(damaged.combatants[cleric_cid].is_active)
+
+        heal = self.client.post(
+            f"/v1/combats/{combat_id}/heal",
+            json={"combatant_id": cleric_cid},
+        )
+        self.assertEqual(heal.status_code, 200, heal.text)
+        combatant = heal.json()["combatants"][cleric_cid]
+        self.assertTrue(combatant["is_active"])
+        self.assertEqual(
+            combatant["hp_current"],
+            combatant["hp_max"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

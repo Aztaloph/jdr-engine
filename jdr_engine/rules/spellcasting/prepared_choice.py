@@ -43,8 +43,10 @@ class PreparedChoiceContext:
     level: int
     pool: tuple[str, ...]
     quota: int
+    srd_quota: int
     domain_spells: tuple[str, ...]
     paladin_no_slots_notice: str | None
+    pool_capped_notice: str | None
 
 
 def requires_prepared_rechoice_class(class_id: str) -> bool:
@@ -70,6 +72,21 @@ def mark_prepared_rechoice_pending(
     choices["spellcasting"] = state
     character.choices = choices
     return character
+
+
+def _resolved_domain_spells(character: Character) -> tuple[str, ...]:
+    """Sorts de domaine clerc — état persisté ou dérivés de la spécialisation."""
+    if character.class_id != "cleric":
+        return ()
+    stored = get_domain_spells(character)
+    if stored:
+        return tuple(stored)
+    from jdr_engine.rules.spellcasting.preparation import (
+        get_domain_spells as domain_at_level,
+    )
+
+    domain_id = get_specialization_id(character.choices or {})
+    return domain_at_level(domain_id, character.level)
 
 
 def get_prepared_spell_pool(
@@ -99,14 +116,62 @@ def get_prepared_spell_pool(
     )
 
 
+def get_selectable_prepared_pool(
+    character: Character,
+    *,
+    engine: RuleEngine,
+) -> tuple[str, ...]:
+    """Pool joueur — sorts de domaine clerc exclus (toujours préparés, hors quota)."""
+    pool = get_prepared_spell_pool(character, engine=engine)
+    if character.class_id == "cleric":
+        domain = set(_resolved_domain_spells(character))
+        pool = tuple(spell_id for spell_id in pool if spell_id not in domain)
+    return pool
+
+
 def get_player_prepared_quota(character: Character, *, engine: RuleEngine) -> int:
-    """Nombre de sorts que le joueur doit choisir (hors domaine clerc)."""
+    """Quota SRD — nombre de sorts que le joueur doit choisir (hors domaine clerc)."""
     ability_id = casting_ability_for_class(character.class_id)
     mod = get_effective_ability_modifier(character, engine, ability_id)
     return prepared_capacity_for_class(
         character.class_id,
         mod,
         character.level,
+    )
+
+
+def get_effective_prepared_quota(character: Character, *, engine: RuleEngine) -> int:
+    """
+    Quota effectif pour la re-préparation.
+
+    Plafonné par la taille du pool curated (compendium partiel — cf. level-up A2).
+    """
+    srd_quota = get_player_prepared_quota(character, engine=engine)
+    selectable = get_selectable_prepared_pool(character, engine=engine)
+    if not selectable:
+        return srd_quota
+    return min(srd_quota, len(selectable))
+
+
+def prepared_pool_capped_notice(
+    character: Character,
+    *,
+    engine: RuleEngine,
+) -> str | None:
+    """Message UX quand le catalogue curated est plus petit que le quota SRD."""
+    srd_quota = get_player_prepared_quota(character, engine=engine)
+    effective = get_effective_prepared_quota(character, engine=engine)
+    if effective >= srd_quota:
+        return None
+    selectable_count = len(get_selectable_prepared_pool(character, engine=engine))
+    if character.class_id == "cleric":
+        return (
+            f"Catalogue partiel — seulement **{selectable_count}** sort(s) "
+            f"disponible(s) hors domaine (quota SRD : {srd_quota})."
+        )
+    return (
+        f"Catalogue partiel — seulement **{selectable_count}** sort(s) "
+        f"disponible(s) (quota SRD : {srd_quota})."
     )
 
 
@@ -126,15 +191,17 @@ def build_prepared_choice_context(
     *,
     engine: RuleEngine,
 ) -> PreparedChoiceContext:
-    domain = tuple(get_domain_spells(character)) if character.class_id == "cleric" else ()
+    domain = _resolved_domain_spells(character) if character.class_id == "cleric" else ()
     return PreparedChoiceContext(
         character_name=character.name,
         class_id=character.class_id,
         level=character.level,
-        pool=get_prepared_spell_pool(character, engine=engine),
-        quota=get_player_prepared_quota(character, engine=engine),
+        pool=get_selectable_prepared_pool(character, engine=engine),
+        quota=get_effective_prepared_quota(character, engine=engine),
+        srd_quota=get_player_prepared_quota(character, engine=engine),
         domain_spells=domain,
         paladin_no_slots_notice=paladin_no_slots_notice(character),
+        pool_capped_notice=prepared_pool_capped_notice(character, engine=engine),
     )
 
 
@@ -160,7 +227,7 @@ def validate_prepared_selection(
             "Re-préparation disponible uniquement après un **repos long**."
         )
 
-    pool = set(get_prepared_spell_pool(character, engine=engine))
+    pool = set(get_selectable_prepared_pool(character, engine=engine))
     if not pool:
         if character.class_id == "wizard":
             raise PreparedChoiceError(
@@ -170,9 +237,9 @@ def validate_prepared_selection(
             "Aucun sort disponible dans le pool de votre classe à ce niveau."
         )
 
-    domain = set(get_domain_spells(character))
+    domain = set(_resolved_domain_spells(character))
     chosen = list(dict.fromkeys(str(spell_id).strip() for spell_id in selected if spell_id))
-    quota = get_player_prepared_quota(character, engine=engine)
+    quota = get_effective_prepared_quota(character, engine=engine)
     cantrips = set(get_cantrips_known(character))
 
     if len(chosen) != quota:

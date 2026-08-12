@@ -7,7 +7,7 @@
     detail,
     time = "",
   }: {
-    kind: "attack" | "spell";
+    kind: "attack" | "spell" | "system";
     summary: string;
     detail: string;
     /** Heure locale du client au moment de l'action — cosmétique, jamais serveur. */
@@ -15,9 +15,12 @@
   } = $props();
 </script>
 
-<li class="entry" class:spell={kind === "spell"}>
+<li class="entry" class:spell={kind === "spell"} class:system={kind === "system"}>
   <span class="entry-kind" aria-hidden="true">
-    <Icon name={kind === "attack" ? "sword" : "sparkle"} size={13} />
+    <Icon
+      name={kind === "attack" ? "sword" : kind === "spell" ? "sparkle" : "wand"}
+      size={13}
+    />
   </span>
   <div class="entry-body">
     <div class="entry-top">

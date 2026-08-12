@@ -99,6 +99,98 @@ export async function fetchCombatState(
   return result;
 }
 
+export async function healCombatant(
+  combatId: string,
+  combatantId: string,
+  viewer?: string,
+  hpCurrent?: number,
+): Promise<CombatState> {
+  const id = combatId.trim();
+  if (!id) {
+    throw { kind: "network", message: "combat_id requis." } satisfies LoadError;
+  }
+
+  const params = new URLSearchParams();
+  const viewerTrimmed = viewer?.trim();
+  if (viewerTrimmed) {
+    params.set("viewer", viewerTrimmed);
+  }
+  const query = params.toString();
+  const url = `/v1/combats/${encodeURIComponent(id)}/heal${query ? `?${query}` : ""}`;
+
+  const body: { combatant_id: string; hp_current?: number } = {
+    combatant_id: combatantId,
+  };
+  if (hpCurrent !== undefined) {
+    body.hp_current = hpCurrent;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (cause) {
+    throw {
+      kind: "network",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : "API injoignable — vérifiez qu'uvicorn tourne sur le port 8000.",
+    } satisfies LoadError;
+  }
+
+  const result = await parseJsonResponse<CombatState>(res);
+  if ("kind" in result) {
+    throw result;
+  }
+  return result;
+}
+
+export async function syncCombatantFromSheet(
+  combatId: string,
+  combatantId: string,
+  viewer?: string,
+): Promise<CombatState> {
+  const id = combatId.trim();
+  if (!id) {
+    throw { kind: "network", message: "combat_id requis." } satisfies LoadError;
+  }
+
+  const params = new URLSearchParams();
+  const viewerTrimmed = viewer?.trim();
+  if (viewerTrimmed) {
+    params.set("viewer", viewerTrimmed);
+  }
+  const query = params.toString();
+  const url = `/v1/combats/${encodeURIComponent(id)}/sync-combatant${query ? `?${query}` : ""}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ combatant_id: combatantId }),
+    });
+  } catch (cause) {
+    throw {
+      kind: "network",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : "API injoignable — vérifiez qu'uvicorn tourne sur le port 8000.",
+    } satisfies LoadError;
+  }
+
+  const result = await parseJsonResponse<CombatState>(res);
+  if ("kind" in result) {
+    throw result;
+  }
+  return result;
+}
+
 export async function advanceCombatTurn(
   combatId: string,
   viewer?: string,

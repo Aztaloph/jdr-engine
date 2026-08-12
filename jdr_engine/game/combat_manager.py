@@ -96,7 +96,12 @@ from jdr_engine.rules.combat.spell_resolution import (
     save_ability_for_spell,
 )
 from jdr_engine.rules.roll_effects import roll_d20_for_combatant
-from jdr_engine.rules.spellcasting.cast import SpellCastError
+from jdr_engine.rules.spellcasting.cast import (
+    SpellCastError,
+    _is_auto_hit_spell,
+    cast_spell as resolve_spell_cast,
+)
+from jdr_engine.rules.spellcasting.state import consume_spell_slot, spell_is_available
 from jdr_engine.rules.spellcasting.concentration import (
     clear_concentration,
     get_active_concentration,
@@ -167,6 +172,16 @@ class SpellSaveOutcome:
     succeeded: bool
     damage_roll: DamageRollResult
     damage: DamageResolution
+
+
+@dataclass(frozen=True)
+class SpellAutoHitOutcome:
+    """Sort à touché automatique (ex. projectile magique) — dégâts sans jet vs CA."""
+
+    spell: CombatSpellEffect
+    damage_total: int
+    damage_notation: str
+    damage: DamageResolution | None = None
 
 
 class CombatManager:
@@ -670,6 +685,10 @@ class CombatManager:
         if spell.effect_type != "spell_attack":
             raise SpellCastError(f"{spell_id!r} n'est pas une attaque de sort.")
 
+        updated_char = consume_spell_slot(caster_char, spell.spell_level)
+        self._characters.save(updated_char)
+
+        state = self._require_state(combat_id)
         self._publish_spell_cast(state, caster_id, spell, (target_id,))
 
         request = build_spell_attack_request(
@@ -727,6 +746,9 @@ class CombatManager:
             raise SpellCastError(f"{spell_id!r} n'est pas un sort à sauvegarde.")
 
         self._consume_budget(combat_id, caster_id, "action")
+
+        updated_char = consume_spell_slot(caster_char, spell.spell_level)
+        self._characters.save(updated_char)
 
         state = self._require_state(combat_id)
         self._publish_spell_cast(state, caster_id, spell, (target_id,))
@@ -788,6 +810,113 @@ class CombatManager:
             damage_roll=damage_roll,
             damage=damage_resolution,
         )
+
+    def cast_spell_auto_hit(
+        self,
+        combat_id: int,
+        caster_id: str,
+        target_id: str,
+        spell_id: str,
+        *,
+        rng: RandInt | None = None,
+        locale: str = "fr",
+    ) -> tuple[CombatState, SpellAutoHitOutcome]:
+        """Sort à touché automatique — dégâts sans jet d'attaque vs CA."""
+        state = self._require_state(combat_id)
+        if state.status != "active":
+            raise CombatStatusError("Les sorts ne sont lançables qu'en combat actif.")
+
+        caster = self._require_combatant(state, caster_id)
+        self._require_combatant(state, target_id)
+        caster_char = self._require_character(caster.character_id)
+
+        spell = load_combat_spell(self._engine, spell_id, locale=locale)
+        if spell.effect_type != "spell_attack":
+            raise SpellCastError(f"{spell_id!r} n'est pas une attaque de sort.")
+        if not _is_auto_hit_spell(spell.spell_def, spell.effect):
+            raise SpellCastError(
+                f"{spell_id!r} n'est pas un sort à touché automatique."
+            )
+
+        self._consume_budget(combat_id, caster_id, "action")
+
+        updated_char = consume_spell_slot(caster_char, spell.spell_level)
+        self._characters.save(updated_char)
+
+        state = self._require_state(combat_id)
+        self._publish_spell_cast(state, caster_id, spell, (target_id,))
+
+        result = resolve_spell_cast(
+            updated_char,
+            spell_id,
+            self._engine,
+            rng=rng,
+            persist_slots=False,
+            locale=locale,
+        )
+
+        damage_resolution = None
+        state = self._require_state(combat_id)
+        damage_total = result.damage_total or 0
+        if damage_total > 0:
+            notation = result.damage_notation or str(damage_total)
+            state, damage_resolution = self.apply_damage(
+                combat_id,
+                target_id,
+                damage_amount=damage_total,
+                source_id=caster_id,
+                dice_notation_label=notation,
+                spell_damage=True,
+            )
+
+        return state, SpellAutoHitOutcome(
+            spell=spell,
+            damage_total=damage_total,
+            damage_notation=result.damage_notation or "",
+            damage=damage_resolution,
+        )
+
+    def heal_combatant(
+        self,
+        combat_id: int,
+        combatant_id: str,
+        *,
+        hp_current: int | None = None,
+    ) -> CombatState:
+        """Outil MJ — restaure les PV du combattant et synchronise la fiche."""
+        state = self._require_state(combat_id)
+        combatant = self._require_combatant(state, combatant_id)
+        if hp_current is None:
+            new_hp = combatant.hp_max
+        else:
+            new_hp = min(max(1, hp_current), combatant.hp_max)
+
+        updated = combatant.with_hp(new_hp)
+        state.combatants[combatant_id] = updated
+        self._persist(state)
+        self._sync_character_from_combatant(updated)
+        return self._require_state(combat_id)
+
+    def refresh_combatant_from_sheet(
+        self,
+        combat_id: int,
+        combatant_id: str,
+    ) -> CombatState:
+        """Outil MJ — réaligne l'overlay combat sur la fiche persistante."""
+        state = self._require_state(combat_id)
+        combatant = self._require_combatant(state, combatant_id)
+        character = self._require_character(combatant.character_id)
+        sheet = build_character_sheet(character, self._engine)
+        updated = replace(
+            combatant,
+            hp_current=sheet.hp_current,
+            hp_max=sheet.hp_max,
+            ac=sheet.ac,
+            is_active=sheet.hp_current > 0,
+        )
+        state.combatants[combatant_id] = updated
+        self._persist(state)
+        return self._require_state(combat_id)
 
     def cast_hunters_mark(
         self,
@@ -953,17 +1082,36 @@ class CombatManager:
         Banc de test B4f — horloge ``rounds`` via le sort curated ``shield``.
 
         Approximation de banc : ``duration_rounds=1`` fixe depuis le round de cast.
-        N'implémente ni la réaction SRD ni le +5 CA ; expose l'horloge, pas la
-        sémantique « jusqu'à votre prochain tour » du texte SRD. Usage interne /
-        tests uniquement — aucune surface MJ.
+        N'implémente ni le +5 CA ; consomme réaction (hors tour propre) et
+        emplacement niv. 1. Usage interne / tests — aucune surface MJ.
         """
         state = self._require_state(combat_id)
         if state.status != "active":
             raise CombatStatusError("Les sorts ne sont lançables qu'en combat actif.")
 
         caster = self._require_combatant(state, caster_id)
-        spell = load_combat_spell(self._engine, "shield", locale=locale)
+        caster_char = self._require_character(caster.character_id)
+        if not spell_is_available(caster_char, "shield"):
+            raise SpellCastError("Le sort shield n'est pas disponible sur la fiche.")
 
+        if self._current_turn_combatant_id(state) == caster_id:
+            raise NotCombatantTurnError(
+                "Shield ne peut être lancé qu'en réaction, hors du tour propre."
+            )
+
+        self._consume_budget(
+            combat_id,
+            caster_id,
+            "reaction",
+            require_own_turn=False,
+        )
+
+        spell = load_combat_spell(self._engine, "shield", locale=locale)
+        updated_char = consume_spell_slot(caster_char, spell.spell_level)
+        self._characters.save(updated_char)
+
+        state = self._require_state(combat_id)
+        caster = self._require_combatant(state, caster_id)
         self._publish_spell_cast(state, caster_id, spell, (caster_id,))
 
         registry = self._registry_for(combat_id)
@@ -1003,8 +1151,11 @@ class CombatManager:
         Les sorts overlay (registre ADR-006) délèguent aux méthodes dédiées ;
         les autres sont routés via ``load_combat_spell`` et ``effect_type``.
         """
+        state = self._require_state(combat_id)
         if spell_id in OVERLAY_CAST_REGISTRY:
             spec = OVERLAY_CAST_REGISTRY[spell_id]
+            if state.status != "active":
+                raise CombatStatusError("Les sorts ne sont lançables qu'en combat actif.")
             if slot_level is not None and spell_id not in UPCAST_COMBAT_SPELLS:
                 raise SpellCastError(
                     f"slot_level non pris en charge pour {spell_id!r} en combat."
@@ -1014,6 +1165,23 @@ class CombatManager:
                 raise SpellCastError(
                     f"Sort {spell_id!r} : entre {spec.min_targets} et "
                     f"{spec.max_targets} cible(s) attendue(s), {count} reçue(s)."
+                )
+            caster_char = self._require_character(
+                self._require_combatant(state, caster_id).character_id
+            )
+            if not spell_is_available(caster_char, spell_id):
+                raise SpellCastError(
+                    f"Le sort {spell_id!r} n'est pas disponible sur la fiche."
+                )
+            is_own_turn = self._current_turn_combatant_id(state) == caster_id
+            if spec.require_own_turn and not is_own_turn:
+                raise NotCombatantTurnError(
+                    f"Seul le combattant actif peut lancer {spell_id!r}."
+                )
+            if not spec.require_own_turn and is_own_turn:
+                raise NotCombatantTurnError(
+                    f"Le sort {spell_id!r} n'est lançable qu'en réaction, "
+                    "hors du tour propre."
                 )
             if spell_id == "hunters_mark":
                 return self.cast_hunters_mark(
@@ -1042,6 +1210,16 @@ class CombatManager:
                     f"Attaque de sort : exactement 1 cible attendue, "
                     f"{len(target_ids)} reçue(s)."
                 )
+            if _is_auto_hit_spell(spell.spell_def, spell.effect):
+                state, _outcome = self.cast_spell_auto_hit(
+                    combat_id,
+                    caster_id,
+                    target_ids[0],
+                    spell_id,
+                    locale=locale,
+                    rng=rng,
+                )
+                return state
             state, _outcome = self.cast_spell_attack(
                 combat_id,
                 caster_id,
