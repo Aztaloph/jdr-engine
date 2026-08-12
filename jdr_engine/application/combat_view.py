@@ -10,7 +10,11 @@ from jdr_engine.persistence.sqlite_character_repository import (
     SqliteCharacterRepository,
 )
 from jdr_engine.rules.calculator import build_character_sheet
-from jdr_engine.rules.combat.castable_spells import list_combat_castable_spell_ids
+from jdr_engine.application.dto.output_serializers import spellcasting_view_to_dict
+from jdr_engine.rules.combat.castable_spells import (
+    list_combat_castable_reaction_spell_ids,
+    list_combat_castable_spell_ids,
+)
 from jdr_engine.rules.derived_stats import ABILITY_FULL_LABELS_FR
 
 
@@ -18,12 +22,17 @@ def resolve_viewer_context(
     state: CombatState,
     viewer_character_id: str,
     character_repository: SqliteCharacterRepository,
+    engine,
+    *,
+    locale: str = "fr",
 ) -> dict[str, Any] | None:
     """
     Bloc ``viewer`` pour ``combat_state_to_dict`` — ``None`` si absent du combat.
 
     ``castable_spells`` : sorts overlay lançables maintenant par le viewer
     (tour propre + budget + fiche).
+    ``castable_reaction_spells`` : réactions overlay (ex. ``shield``), hors tour propre.
+    ``spellcasting`` : emplacements et listes dérivées de la fiche (``null`` si non-lanceur).
     """
     combatant_id: str | None = None
     combatant = None
@@ -38,17 +47,31 @@ def resolve_viewer_context(
             "character_id": viewer_character_id,
             "combatant_id": None,
             "castable_spells": [],
+            "castable_reaction_spells": [],
+            "spellcasting": None,
         }
 
     character = character_repository.get_by_id(viewer_character_id)
     castable: list[str] = []
+    castable_reaction: list[str] = []
+    spellcasting: dict[str, Any] | None = None
     if character is not None:
         castable = list_combat_castable_spell_ids(state, combatant, character)
+        castable_reaction = list_combat_castable_reaction_spell_ids(
+            state,
+            combatant,
+            character,
+        )
+        sheet = build_character_sheet(character, engine, locale=locale)
+        if sheet.spellcasting is not None:
+            spellcasting = spellcasting_view_to_dict(sheet.spellcasting)
 
     return {
         "character_id": viewer_character_id,
         "combatant_id": combatant_id,
         "castable_spells": castable,
+        "castable_reaction_spells": castable_reaction,
+        "spellcasting": spellcasting,
     }
 
 

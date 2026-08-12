@@ -76,6 +76,19 @@
   );
 
   const castableSpells = $derived(combat?.viewer?.castable_spells ?? []);
+  const castableReactionSpells = $derived(
+    combat?.viewer?.castable_reaction_spells ?? [],
+  );
+  const viewerSpellcasting = $derived(combat?.viewer?.spellcasting ?? null);
+  const spellSlotLevels = $derived.by(() => {
+    const sc = viewerSpellcasting;
+    if (!sc?.slots_max) {
+      return [] as string[];
+    }
+    return Object.keys(sc.slots_max).sort(
+      (a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10),
+    );
+  });
 
   const combatParticipants = $derived(
     combat
@@ -97,6 +110,13 @@
       combat.viewer?.combatant_id != null &&
       targetId !== "" &&
       targetId !== combat.viewer.combatant_id &&
+      !loading,
+  );
+
+  const canCastReactionSpell = $derived(
+    combat !== null &&
+      combat.status === "active" &&
+      combat.viewer?.combatant_id != null &&
       !loading,
   );
 
@@ -337,6 +357,37 @@
         kind: "spell",
         summary: `${casterName} lance ${spellId} sur ${targetName}`,
         detail: `Sort overlay · cible ${tgt}`,
+      });
+    } catch (e) {
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function launchReactionSpell(spellId: string) {
+    if (!canCastReactionSpell || !combat?.viewer?.combatant_id) {
+      return;
+    }
+    error = null;
+    loading = true;
+    const casterId = combat.viewer.combatant_id;
+    try {
+      const next = await postCombatCast(
+        combatId,
+        {
+          caster_id: casterId,
+          spell_id: spellId,
+          target_ids: [],
+        },
+        viewer,
+      );
+      applyCombatState(next);
+      const casterName = combatantName(casterId, next);
+      pushJournal({
+        kind: "spell",
+        summary: `${casterName} lance ${spellId} (réaction)`,
+        detail: "Sort overlay · réaction · auto-cible",
       });
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
@@ -625,7 +676,23 @@
                 <Icon name="sparkle" size={12} />
                 Lancer un sort
               </h3>
+              {#if viewerSpellcasting && spellSlotLevels.length > 0}
+                <div class="spell-slots" aria-label="Emplacements de sorts">
+                  {#each spellSlotLevels as level (level)}
+                    {@const max = viewerSpellcasting.slots_max[level] ?? 0}
+                    {@const remaining = viewerSpellcasting.slots_remaining[level] ?? 0}
+                    <span
+                      class="slot-chip"
+                      class:slot-chip-empty={remaining === 0}
+                      title="Emplacements niveau {level}"
+                    >
+                      niv.{level} · {remaining}/{max}
+                    </span>
+                  {/each}
+                </div>
+              {/if}
               {#if castableSpells.length > 0}
+                <p class="spell-section-label">Action / bonus</p>
                 <div class="spell-actions">
                   {#each castableSpells as spellId (spellId)}
                     <button
@@ -639,28 +706,46 @@
                     </button>
                   {/each}
                 </div>
-              {:else if viewer.trim()}
-                {#if combat.viewer?.combatant_id == null}
-                  <p class="hint">Ce viewer ne participe pas à ce combat.</p>
-                {:else if !isViewerTurn}
-                  <p class="hint">
-                    Ce n'est pas le tour de {combatantName(combat.viewer.combatant_id, combat)}
-                    — utilisez « Fin de tour ».
-                  </p>
+              {/if}
+              {#if castableReactionSpells.length > 0}
+                <p class="spell-section-label">Réaction</p>
+                <div class="spell-actions">
+                  {#each castableReactionSpells as spellId (spellId)}
+                    <button
+                      type="button"
+                      class="btn-spell btn-spell-reaction"
+                      onclick={() => launchReactionSpell(spellId)}
+                      disabled={!canCastReactionSpell}
+                    >
+                      <Icon name="sparkle" size={12} />
+                      {spellId}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+              {#if castableSpells.length === 0 && castableReactionSpells.length === 0}
+                {#if viewer.trim()}
+                  {#if combat.viewer?.combatant_id == null}
+                    <p class="hint">Ce viewer ne participe pas à ce combat.</p>
+                  {:else if !isViewerTurn}
+                    <p class="hint">
+                      Ce n'est pas le tour de {combatantName(combat.viewer.combatant_id, combat)}
+                      — sorts d'action indisponibles ; réactions si budget disponible.
+                    </p>
+                  {:else}
+                    <p class="hint">
+                      Aucun sort overlay lançable pour cette fiche (voir la liste ci-dessous).
+                    </p>
+                  {/if}
                 {:else}
                   <p class="hint">
-                    Aucun sort overlay lançable pour cette fiche (voir la liste ci-dessous).
+                    Choisissez un viewer (en haut) pour activer les sorts joueur.
                   </p>
                 {/if}
-              {:else}
-                <p class="hint">
-                  Choisissez un viewer (en haut) pour activer les sorts joueur.
-                </p>
               {/if}
               <p class="hint spell-help">
                 Sorts combat (overlay v1) : <code>hunters_mark</code> rôdeur ·
-                <code>bless</code> clerc · <code>hex</code>. Au tour du viewer,
-                avec le budget requis (<code>shield</code> = réaction, hors panneau).
+                <code>bless</code> clerc · <code>hex</code> · <code>shield</code> (réaction).
               </p>
             </div>
 
@@ -1289,6 +1374,40 @@
     gap: 0.4rem;
   }
 
+  .spell-section-label {
+    margin: 0.35rem 0 0.25rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .spell-slots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.45rem;
+  }
+
+  .slot-chip {
+    font-size: 0.72rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 0.2rem 0.45rem;
+    border-radius: var(--radius-sm);
+    color: var(--color-accent);
+    background: rgb(245 158 11 / 0.08);
+    border: 1px solid rgb(245 158 11 / 0.35);
+  }
+
+  .slot-chip-empty {
+    opacity: 0.55;
+    color: var(--color-text-muted);
+    border-color: var(--color-border-default);
+    background: var(--color-bg-panel);
+  }
+
   .btn-spell {
     display: inline-flex;
     align-items: center;
@@ -1305,6 +1424,17 @@
   .btn-spell:hover:not(:disabled) {
     background: var(--color-accent-muted);
     border-color: var(--color-accent);
+  }
+
+  .btn-spell-reaction {
+    color: rgb(96 165 250);
+    background: rgb(96 165 250 / 0.08);
+    border-color: rgb(96 165 250 / 0.45);
+  }
+
+  .btn-spell-reaction:hover:not(:disabled) {
+    background: rgb(96 165 250 / 0.14);
+    border-color: rgb(96 165 250);
   }
 
   .spell-help {

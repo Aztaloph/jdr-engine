@@ -61,11 +61,30 @@ export interface ActiveEffect {
   duration_rounds?: number;
 }
 
+/** Vue incantation — alignée sur ``spellcasting_view_to_dict`` (fiche / combat viewer). */
+export interface SpellcastingView {
+  ability?: string;
+  pact_magic?: boolean;
+  slots_max: Record<string, number>;
+  slots_remaining: Record<string, number>;
+  concentration?: {
+    spell_id?: string;
+    spell_name?: string;
+  } | null;
+  cantrips_known?: string[];
+  spells_prepared?: string[];
+  spells_known?: string[];
+}
+
 /** Présent lorsque la requête inclut ``?viewer=character_id``. */
 export interface CombatViewerContext {
   character_id: string;
   combatant_id: string | null;
   castable_spells: string[];
+  /** Réactions overlay (ex. ``shield``) — hors tour propre. */
+  castable_reaction_spells: string[];
+  /** Emplacements et listes dérivées de la fiche ; absent si non-lanceur. */
+  spellcasting?: SpellcastingView | null;
 }
 
 export interface CombatState {

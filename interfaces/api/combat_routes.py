@@ -127,6 +127,8 @@ def register_combat_routes(
                 state,
                 normalized,
                 character_repository,
+                engine,
+                locale=locale,
             )
         ability_snapshots = resolve_combatant_ability_snapshots(
             state,

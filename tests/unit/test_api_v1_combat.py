@@ -989,7 +989,7 @@ class TestApiV1CombatCast(unittest.TestCase):
             choices={
                 "spellcasting": {
                     "cantrips_known": ["fire_bolt"],
-                    "spells_prepared": ["magic_missile"],
+                    "spells_prepared": ["magic_missile", "shield"],
                     "slots_used": {},
                 }
             },
@@ -1175,6 +1175,34 @@ class TestApiV1CombatCast(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["viewer"]["castable_spells"], [])
+
+    def test_get_combat_viewer_includes_reaction_spells_off_turn(self) -> None:
+        state = self._create_and_activate(channel_id="cast-viewer-shield")
+        combat_id = state["combat_id"]
+
+        response = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.wizard.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        viewer = response.json()["viewer"]
+        self.assertEqual(viewer["castable_spells"], [])
+        self.assertIn("shield", viewer["castable_reaction_spells"])
+
+    def test_get_combat_viewer_includes_spell_slots(self) -> None:
+        state = self._create_and_activate(channel_id="cast-viewer-slots")
+        combat_id = state["combat_id"]
+
+        response = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.wizard.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        sc = response.json()["viewer"]["spellcasting"]
+        self.assertIsNotNone(sc)
+        self.assertIn("1", sc["slots_max"])
+        self.assertIn("1", sc["slots_remaining"])
+        self.assertGreater(sc["slots_max"]["1"], 0)
 
 
 if __name__ == "__main__":

@@ -30,18 +30,14 @@ def _budget_allows(budget, kind: ActionKind) -> bool:
     return budget.has_movement
 
 
-def list_combat_castable_spell_ids(
+def _list_overlay_spell_ids(
     state: CombatState,
     combatant: Combatant,
     character: Character,
+    *,
+    action_kind: ActionKind | None = None,
+    expose_in_castable: bool | None = None,
 ) -> list[str]:
-    """
-    Sorts overlay du registre que ``combatant`` peut lancer immédiatement.
-
-    Conditions : combat ``active``, combattant actif, tour propre (sauf réaction
-    — non exposée tant que ``expose_in_castable`` est faux), sort disponible sur
-    la fiche, budget d'action suffisant.
-    """
     if state.status != "active" or not combatant.is_active:
         return []
 
@@ -54,7 +50,9 @@ def list_combat_castable_spell_ids(
 
     castable: list[str] = []
     for spell_id, spec in OVERLAY_CAST_REGISTRY.items():
-        if not spec.expose_in_castable:
+        if action_kind is not None and spec.action_kind != action_kind:
+            continue
+        if expose_in_castable is not None and spec.expose_in_castable != expose_in_castable:
             continue
         if spec.require_own_turn and not is_own_turn:
             continue
@@ -67,3 +65,37 @@ def list_combat_castable_spell_ids(
         castable.append(spell_id)
 
     return castable
+
+
+def list_combat_castable_spell_ids(
+    state: CombatState,
+    combatant: Combatant,
+    character: Character,
+) -> list[str]:
+    """
+    Sorts overlay du registre que ``combatant`` peut lancer immédiatement.
+
+    Conditions : combat ``active``, combattant actif, tour propre (sauf réaction
+    — non exposée tant que ``expose_in_castable`` est faux), sort disponible sur
+    la fiche, budget d'action suffisant.
+    """
+    return _list_overlay_spell_ids(
+        state,
+        combatant,
+        character,
+        expose_in_castable=True,
+    )
+
+
+def list_combat_castable_reaction_spell_ids(
+    state: CombatState,
+    combatant: Combatant,
+    character: Character,
+) -> list[str]:
+    """Sorts overlay en réaction (ex. ``shield``) — hors tour propre du combattant."""
+    return _list_overlay_spell_ids(
+        state,
+        combatant,
+        character,
+        action_kind="reaction",
+    )

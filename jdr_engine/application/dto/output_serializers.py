@@ -52,6 +52,7 @@ __all__ = [
     "character_sheet_to_dict",
     "combat_state_to_dict",
     "viewer_combatant_id",
+    "spellcasting_view_to_dict",
     "attack_roll_resolution_to_dict",
     "weapon_attack_result_to_dict",
     "spell_cast_result_to_dict",
@@ -74,6 +75,11 @@ class WeaponAttackResult:
 def _slots_to_dict(slots: dict[int, int]) -> dict[str, int]:
     """Clés int (niveau d'emplacement) → str, pour JSON."""
     return {str(level): int(count) for level, count in sorted(slots.items())}
+
+
+def spellcasting_view_to_dict(view: SpellcastingView) -> dict[str, Any]:
+    """Vue incantation pour DTO (fiche ou bloc ``viewer.spellcasting`` combat)."""
+    return _spellcasting_view_to_dict(view)
 
 
 def _spellcasting_view_to_dict(view: SpellcastingView) -> dict[str, Any]:
