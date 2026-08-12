@@ -12,6 +12,7 @@ from jdr_engine.persistence.sqlite_character_repository import (
 from jdr_engine.rules.calculator import build_character_sheet
 from jdr_engine.application.dto.output_serializers import spellcasting_view_to_dict
 from jdr_engine.rules.combat.castable_spells import (
+    list_combat_castable_bonus_spell_ids,
     list_combat_castable_reaction_spell_ids,
     list_combat_castable_spell_ids,
 )
@@ -48,16 +49,25 @@ def resolve_viewer_context(
             "character_id": viewer_character_id,
             "combatant_id": None,
             "castable_spells": [],
+            "castable_bonus_spells": [],
             "castable_reaction_spells": [],
             "spellcasting": None,
         }
 
     character = character_repository.get_by_id(viewer_character_id)
     castable: list[str] = []
+    castable_bonus: list[str] = []
     castable_reaction: list[str] = []
     spellcasting: dict[str, Any] | None = None
     if character is not None:
         castable = list_combat_castable_spell_ids(
+            state,
+            combatant,
+            character,
+            engine,
+            locale=locale,
+        )
+        castable_bonus = list_combat_castable_bonus_spell_ids(
             state,
             combatant,
             character,
@@ -80,6 +90,7 @@ def resolve_viewer_context(
         "character_id": viewer_character_id,
         "combatant_id": combatant_id,
         "castable_spells": castable,
+        "castable_bonus_spells": castable_bonus,
         "castable_reaction_spells": castable_reaction,
         "spellcasting": spellcasting,
     }

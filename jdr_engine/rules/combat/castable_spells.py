@@ -7,7 +7,10 @@ from jdr_engine.domain.combat.action_budget import ActionKind
 from jdr_engine.domain.combat.combat_state import CombatState
 from jdr_engine.domain.combat.combatant import Combatant
 from jdr_engine.rules.combat.overlay_cast import OVERLAY_CAST_REGISTRY
-from jdr_engine.rules.combat.spell_resolution import load_combat_spell
+from jdr_engine.rules.combat.spell_resolution import (
+    load_combat_spell,
+    spell_combat_action_kind,
+)
 from jdr_engine.rules.engine import RuleEngine
 from jdr_engine.rules.spellcasting.cast import SpellCastError
 from jdr_engine.rules.spellcasting.slots import get_max_spell_slots
@@ -88,6 +91,7 @@ def _list_resolved_combat_spell_ids(
     character: Character,
     engine: RuleEngine,
     *,
+    action_kind: ActionKind,
     locale: str = "fr",
 ) -> list[str]:
     """Attaques / sauvegardes combat (hors registre overlay ADR-006)."""
@@ -95,7 +99,7 @@ def _list_resolved_combat_spell_ids(
         return []
 
     budget = combatant.action_budget
-    if budget is None or not budget.has_action:
+    if budget is None or not _budget_allows(budget, action_kind):
         return []
 
     current_id = _current_turn_combatant_id(state)
@@ -115,6 +119,8 @@ def _list_resolved_combat_spell_ids(
             continue
         if spell.effect_type not in ("spell_attack", "saving_throw"):
             continue
+        if spell_combat_action_kind(spell, locale=locale) != action_kind:
+            continue
         if spell.spell_level > max_spell_level:
             continue
         castable.append(spell_id)
@@ -130,15 +136,15 @@ def list_combat_castable_spell_ids(
     locale: str = "fr",
 ) -> list[str]:
     """
-    Sorts lançables immédiatement au tour propre : overlay + attaque/sauvegarde.
+    Sorts lançables immédiatement au tour propre — **action** standard.
 
-    Overlay : registre ADR-006 avec ``expose_in_castable`` ; résolus : compendium
-    C3b (``spell_attack`` / ``saving_throw``) disponibles sur la fiche.
+    Overlay : registre ADR-006 (``action``) ; résolus : attaque/sauvegarde action.
     """
     overlay = _list_overlay_spell_ids(
         state,
         combatant,
         character,
+        action_kind="action",
         expose_in_castable=True,
     )
     resolved = _list_resolved_combat_spell_ids(
@@ -146,6 +152,34 @@ def list_combat_castable_spell_ids(
         combatant,
         character,
         engine,
+        action_kind="action",
+        locale=locale,
+    )
+    return list(dict.fromkeys(overlay + resolved))
+
+
+def list_combat_castable_bonus_spell_ids(
+    state: CombatState,
+    combatant: Combatant,
+    character: Character,
+    engine: RuleEngine,
+    *,
+    locale: str = "fr",
+) -> list[str]:
+    """Sorts lançables au tour propre — **action bonus** (overlay + résolus)."""
+    overlay = _list_overlay_spell_ids(
+        state,
+        combatant,
+        character,
+        action_kind="bonus_action",
+        expose_in_castable=True,
+    )
+    resolved = _list_resolved_combat_spell_ids(
+        state,
+        combatant,
+        character,
+        engine,
+        action_kind="bonus_action",
         locale=locale,
     )
     return list(dict.fromkeys(overlay + resolved))

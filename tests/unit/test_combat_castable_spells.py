@@ -14,6 +14,7 @@ from jdr_engine.domain.combat.combat_state import COMBAT_STATE_VERSION, CombatSt
 from jdr_engine.domain.combat.combatant import Combatant
 from jdr_engine.rules import RuleEngine
 from jdr_engine.rules.combat.castable_spells import (
+    list_combat_castable_bonus_spell_ids,
     list_combat_castable_reaction_spell_ids,
     list_combat_castable_spell_ids,
 )
@@ -207,6 +208,10 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
         char = _ranger_character()
         self.assertEqual(
             list_combat_castable_spell_ids(state, ranger, char, self.engine),
+            [],
+        )
+        self.assertEqual(
+            list_combat_castable_bonus_spell_ids(state, ranger, char, self.engine),
             ["hunters_mark"],
         )
 
@@ -215,6 +220,10 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
         char = _ranger_character()
         self.assertEqual(
             list_combat_castable_spell_ids(state, ranger, char, self.engine),
+            [],
+        )
+        self.assertEqual(
+            list_combat_castable_bonus_spell_ids(state, ranger, char, self.engine),
             [],
         )
 
@@ -231,6 +240,10 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
             list_combat_castable_spell_ids(state, ranger, char, self.engine),
             [],
         )
+        self.assertEqual(
+            list_combat_castable_bonus_spell_ids(state, ranger, char, self.engine),
+            [],
+        )
 
     def test_cleric_bless_on_own_turn(self) -> None:
         state, _, cleric = self._state(turn_index=1)
@@ -239,6 +252,51 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
             list_combat_castable_spell_ids(state, cleric, char, self.engine),
             ["bless", "sacred_flame"],
         )
+        self.assertEqual(
+            list_combat_castable_bonus_spell_ids(state, cleric, char, self.engine),
+            [],
+        )
+
+    def test_cleric_spiritual_weapon_in_bonus_list(self) -> None:
+        state, _, cleric = self._state(turn_index=1)
+        char = Character(
+            id="cleric_sw",
+            owner_id="113",
+            guild_id="guild1",
+            name="Clerc",
+            race_id="human",
+            class_id="cleric",
+            level=3,
+            ability_scores=AbilityScores(
+                scores={
+                    "str": 10,
+                    "dex": 10,
+                    "con": 12,
+                    "int": 10,
+                    "wis": 16,
+                    "cha": 10,
+                }
+            ),
+            hp_current=22,
+            hp_max=22,
+            choices={
+                "spellcasting": {
+                    "cantrips_known": ["sacred_flame"],
+                    "spells_prepared": ["bless", "spiritual_weapon"],
+                    "slots_used": {},
+                }
+            },
+        )
+        action_spells = list_combat_castable_spell_ids(
+            state, cleric, char, self.engine
+        )
+        bonus_spells = list_combat_castable_bonus_spell_ids(
+            state, cleric, char, self.engine
+        )
+        self.assertIn("bless", action_spells)
+        self.assertIn("sacred_flame", action_spells)
+        self.assertNotIn("spiritual_weapon", action_spells)
+        self.assertEqual(bonus_spells, ["spiritual_weapon"])
 
     def test_wizard_includes_resolved_spells_on_own_turn(self) -> None:
         state, wizard = self._wizard_state(turn_index=1)
@@ -422,7 +480,8 @@ class TestCombatStateViewerDto(unittest.TestCase):
         viewer_context = {
             "character_id": "ranger_char",
             "combatant_id": ranger.combatant_id,
-            "castable_spells": ["hunters_mark"],
+            "castable_spells": [],
+            "castable_bonus_spells": ["hunters_mark"],
             "castable_reaction_spells": [],
             "spellcasting": None,
         }
@@ -432,7 +491,7 @@ class TestCombatStateViewerDto(unittest.TestCase):
             viewer_context=viewer_context,
         )
         self.assertIn("viewer", data)
-        self.assertEqual(data["viewer"]["castable_spells"], ["hunters_mark"])
+        self.assertEqual(data["viewer"]["castable_bonus_spells"], ["hunters_mark"])
         self.assertEqual(data["viewer"]["combatant_id"], "rng11111")
 
     def test_dm_view_omits_viewer_block(self) -> None:
@@ -463,7 +522,8 @@ class TestResolveViewerContext(unittest.TestCase):
             self.engine,
         )
         assert ctx is not None
-        self.assertEqual(ctx["castable_spells"], ["hunters_mark"])
+        self.assertEqual(ctx["castable_spells"], [])
+        self.assertEqual(ctx["castable_bonus_spells"], ["hunters_mark"])
         self.assertEqual(ctx["castable_reaction_spells"], [])
         self.assertEqual(ctx["combatant_id"], ranger.combatant_id)
         self.assertIsNotNone(ctx["spellcasting"])

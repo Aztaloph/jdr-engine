@@ -89,6 +89,8 @@ export interface CombatViewerContext {
   character_id: string;
   combatant_id: string | null;
   castable_spells: string[];
+  /** Sorts action bonus — overlay (ex. ``hunters_mark``) + résolus (ex. ``spiritual_weapon``). */
+  castable_bonus_spells: string[];
   /** Réactions overlay (ex. ``shield``) — hors tour propre. */
   castable_reaction_spells: string[];
   /** Emplacements et listes dérivées de la fiche ; absent si non-lanceur. */

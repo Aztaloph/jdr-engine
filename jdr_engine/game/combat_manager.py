@@ -94,6 +94,7 @@ from jdr_engine.rules.combat.spell_resolution import (
     require_spell_attack_type,
     resolve_spell_damage_notation,
     save_ability_for_spell,
+    spell_combat_action_kind,
 )
 from jdr_engine.rules.roll_effects import roll_d20_for_combatant
 from jdr_engine.rules.spellcasting.cast import (
@@ -708,6 +709,9 @@ class CombatManager:
         if spell.effect_type != "spell_attack":
             raise SpellCastError(f"{spell_id!r} n'est pas une attaque de sort.")
 
+        action_kind = spell_combat_action_kind(spell, locale=locale)
+        self._consume_budget(combat_id, caster_id, action_kind)
+
         updated_char = consume_spell_slot(caster_char, spell.spell_level)
         self._characters.save(updated_char)
 
@@ -721,13 +725,15 @@ class CombatManager:
             attack_type=require_spell_attack_type(spell),
         )
         attack = self.resolve_attack_roll(
-            combat_id, caster_id, target_id, request, rng=rng
+            combat_id, caster_id, target_id, request, rng=rng, consume_action=False
         )
 
         damage_resolution = None
         state = self._require_state(combat_id)
         if attack.outcome.hit:
-            notation = resolve_spell_damage_notation(spell, caster_char)
+            notation = resolve_spell_damage_notation(
+                spell, caster_char, self._engine
+            )
             state, damage_resolution = self.apply_damage(
                 combat_id,
                 target_id,
@@ -768,7 +774,8 @@ class CombatManager:
         if spell.effect_type != "saving_throw":
             raise SpellCastError(f"{spell_id!r} n'est pas un sort à sauvegarde.")
 
-        self._consume_budget(combat_id, caster_id, "action")
+        action_kind = spell_combat_action_kind(spell, locale=locale)
+        self._consume_budget(combat_id, caster_id, action_kind)
 
         updated_char = consume_spell_slot(caster_char, spell.spell_level)
         self._characters.save(updated_char)
@@ -776,7 +783,7 @@ class CombatManager:
         state = self._require_state(combat_id)
         self._publish_spell_cast(state, caster_id, spell, (target_id,))
 
-        notation = resolve_spell_damage_notation(spell, caster_char)
+        notation = resolve_spell_damage_notation(spell, caster_char, self._engine)
         damage_roll = roll_damage(notation, rng=rng)
         save_dc = compute_spell_save_dc(caster_char, self._engine)
         save_ability = save_ability_for_spell(spell)
@@ -861,7 +868,8 @@ class CombatManager:
                 f"{spell_id!r} n'est pas un sort à touché automatique."
             )
 
-        self._consume_budget(combat_id, caster_id, "action")
+        action_kind = spell_combat_action_kind(spell, locale=locale)
+        self._consume_budget(combat_id, caster_id, action_kind)
 
         updated_char = consume_spell_slot(caster_char, spell.spell_level)
         self._characters.save(updated_char)
@@ -926,7 +934,8 @@ class CombatManager:
             raise SpellCastError(f"{spell_id!r} n'est pas un sort multi-attaque.")
 
         instances = _spell_attack_instances(spell.effect)
-        self._consume_budget(combat_id, caster_id, "action")
+        action_kind = spell_combat_action_kind(spell, locale=locale)
+        self._consume_budget(combat_id, caster_id, action_kind)
 
         updated_char = consume_spell_slot(caster_char, spell.spell_level)
         self._characters.save(updated_char)
@@ -940,7 +949,7 @@ class CombatManager:
             base_mode=base_mode,
             attack_type=require_spell_attack_type(spell),
         )
-        notation = resolve_spell_damage_notation(spell, caster_char)
+        notation = resolve_spell_damage_notation(spell, caster_char, self._engine)
 
         attacks: list[AttackRollResolution] = []
         damages: list[DamageResolution] = []

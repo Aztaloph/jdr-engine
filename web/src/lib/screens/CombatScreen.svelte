@@ -84,15 +84,13 @@
   );
 
   const castableSpells = $derived(combat?.viewer?.castable_spells ?? []);
+  const castableBonusSpells = $derived(
+    combat?.viewer?.castable_bonus_spells ?? [],
+  );
   const castableReactionSpells = $derived(
     combat?.viewer?.castable_reaction_spells ?? [],
   );
-  const OVERLAY_SPELL_IDS = new Set([
-    "hunters_mark",
-    "hex",
-    "bless",
-    "shield",
-  ]);
+  const OVERLAY_SPELL_IDS = new Set(["hex", "bless", "shield"]);
   const overlayCastableSpells = $derived(
     castableSpells.filter((id) => OVERLAY_SPELL_IDS.has(id)),
   );
@@ -892,6 +890,22 @@
                   {/each}
                 </div>
               {/if}
+              {#if castableBonusSpells.length > 0}
+                <p class="spell-section-label">Action bonus</p>
+                <div class="spell-actions">
+                  {#each castableBonusSpells as spellId (spellId)}
+                    <button
+                      type="button"
+                      class="btn-spell btn-spell-bonus"
+                      onclick={() => launchSpell(spellId)}
+                      disabled={!canCastSpell}
+                    >
+                      <Icon name="sparkle" size={12} />
+                      {spellId}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
               {#if resolvedCastableSpells.length > 0}
                 <p class="spell-section-label">Attaque / sauvegarde</p>
                 <div class="spell-actions">
@@ -924,7 +938,7 @@
                   {/each}
                 </div>
               {/if}
-              {#if castableSpells.length === 0 && castableReactionSpells.length === 0}
+              {#if castableSpells.length === 0 && castableBonusSpells.length === 0 && castableReactionSpells.length === 0}
                 {#if viewer.trim()}
                   {#if combat.viewer?.combatant_id == null}
                     <p class="hint">Ce viewer ne participe pas à ce combat.</p>
@@ -1846,6 +1860,17 @@
   .btn-spell-reaction:hover:not(:disabled) {
     background: rgb(96 165 250 / 0.14);
     border-color: rgb(96 165 250);
+  }
+
+  .btn-spell-bonus {
+    color: rgb(52 211 153);
+    background: rgb(52 211 153 / 0.08);
+    border-color: rgb(52 211 153 / 0.45);
+  }
+
+  .btn-spell-bonus:hover:not(:disabled) {
+    background: rgb(52 211 153 / 0.14);
+    border-color: rgb(52 211 153);
   }
 
   .spell-help {

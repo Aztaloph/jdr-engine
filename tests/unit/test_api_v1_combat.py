@@ -1161,7 +1161,8 @@ class TestApiV1CombatCast(unittest.TestCase):
         data = response.json()
         self.assertIn("viewer", data)
         self.assertEqual(data["viewer"]["character_id"], self.ranger.id)
-        self.assertIn("hunters_mark", data["viewer"]["castable_spells"])
+        self.assertIn("hunters_mark", data["viewer"]["castable_bonus_spells"])
+        self.assertNotIn("hunters_mark", data["viewer"]["castable_spells"])
 
     def test_get_combat_viewer_empty_when_not_own_turn(self) -> None:
         state = self._create_and_activate(channel_id="cast-viewer-turn")
@@ -1311,6 +1312,50 @@ class TestApiV1CombatCast(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         target = response.json()["combatants"][wizard_cid]
         self.assertLess(target["hp_current"], hp_before)
+
+    def test_post_cast_spiritual_weapon_bonus_action(self) -> None:
+        self.cleric.choices = {
+            "spellcasting": {
+                "cantrips_known": ["sacred_flame"],
+                "spells_prepared": ["spiritual_weapon"],
+                "slots_used": {},
+            }
+        }
+        self.repo.save(self.cleric)
+
+        state = self._create_and_activate(channel_id="cast-spiritual-weapon")
+        combat_id = state["combat_id"]
+        cleric_cid = self._combatant_for_character(state, self.cleric.id)
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.cleric.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        viewer = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.cleric.id},
+        )
+        self.assertIn(
+            "spiritual_weapon",
+            viewer.json()["viewer"]["castable_bonus_spells"],
+        )
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": cleric_cid,
+                "spell_id": "spiritual_weapon",
+                "target_ids": [wizard_cid],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        combatant = response.json()["combatants"][cleric_cid]
+        self.assertFalse(combatant["action_budget"]["has_bonus_action"])
+        self.assertTrue(combatant["action_budget"]["has_action"])
 
     def test_post_heal_revives_combatant(self) -> None:
         from jdr_engine.core.events.bus import EventBus

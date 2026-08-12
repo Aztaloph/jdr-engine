@@ -323,6 +323,56 @@ class TestCombatSpells(unittest.TestCase):
         self.assertLess(state.combatants[target_id].hp_current, hp_before)
         self.assertIsInstance(self.events[0], SpellCast)
 
+    def test_spiritual_weapon_consumes_bonus_action_not_action(self) -> None:
+        cleric = Character(
+            owner_id="113",
+            guild_id="guild1",
+            name="Clerc SW",
+            race_id="human",
+            class_id="cleric",
+            level=3,
+            ability_scores=AbilityScores(
+                scores={
+                    "str": 10,
+                    "dex": 10,
+                    "con": 12,
+                    "int": 10,
+                    "wis": 16,
+                    "cha": 10,
+                }
+            ),
+            hp_current=22,
+            hp_max=22,
+            choices={
+                "spellcasting": {
+                    "cantrips_known": ["sacred_flame"],
+                    "spells_prepared": ["spiritual_weapon"],
+                    "slots_used": {},
+                }
+            },
+        )
+        self.char_repo.save(cleric)
+        combat_id, ids = self._active_two(cleric.id, self.wizard.id)
+        caster_id = ids[cleric.id]
+        target_id = ids[self.wizard.id]
+        before = self.manager.load_combat(combat_id).combatants[caster_id].action_budget
+        assert before is not None
+        self.assertTrue(before.has_action)
+        self.assertTrue(before.has_bonus_action)
+
+        state, outcome = self.manager.cast_spell_attack(
+            combat_id,
+            caster_id,
+            target_id,
+            "spiritual_weapon",
+            rng=RandSequence([16, 5]),
+        )
+        assert outcome.damage is not None
+        budget = state.combatants[caster_id].action_budget
+        assert budget is not None
+        self.assertTrue(budget.has_action)
+        self.assertFalse(budget.has_bonus_action)
+
     def test_heal_combatant_revives_inactive(self) -> None:
         combat_id, ids = self._active_two(self.wizard.id, self.target.id)
         target_id = ids[self.target.id]

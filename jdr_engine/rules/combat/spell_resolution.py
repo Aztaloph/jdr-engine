@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from jdr_engine.dice.d20 import D20Mode, D20RollRequest
 from jdr_engine.domain.character.character import Character
+from jdr_engine.domain.combat.action_budget import ActionKind
 from jdr_engine.rules.calculator import build_character_sheet
 from jdr_engine.rules.engine import RuleEngine
 from jdr_engine.rules.spellcasting.cast import (
@@ -139,16 +140,25 @@ def build_save_request(
 def resolve_spell_damage_notation(
     spell: CombatSpellEffect,
     character: Character,
+    engine: RuleEngine | None = None,
 ) -> str:
-    """Notation de dégâts effective (cantrip scaling inclus)."""
+    """Notation de dégâts effective (cantrip scaling + mod incantation si applicable)."""
     if spell.effect_type != "spell_attack" and spell.effect_type != "saving_throw":
         raise SpellCastError("Ce sort n'inflige pas de dégâts directs.")
-    return _resolve_damage_notation(
+    notation = _resolve_damage_notation(
         spell.spell_def,
         spell.effect,
         spell_level=spell.spell_level,
         character_level=character.level,
     )
+    if spell.effect.get("add_ability_mod") and engine is not None:
+        _ability_mod, _attack_bonus, _save_dc = get_spellcasting_stats(
+            character, engine
+        )
+        if _ability_mod >= 0:
+            return f"{notation}+{_ability_mod}"
+        return f"{notation}{_ability_mod}"
+    return notation
 
 
 def save_ability_for_spell(spell: CombatSpellEffect) -> str:
@@ -160,3 +170,23 @@ def save_ability_for_spell(spell: CombatSpellEffect) -> str:
 def half_on_save_for_spell(spell: CombatSpellEffect) -> bool:
     save_info = _save_spec(spell.effect)
     return bool(save_info.get("half_on_save", True))
+
+
+def _casting_time_text(spell_def: dict[str, Any], *, locale: str = "fr") -> str:
+    mechanics = spell_def.get("mechanics", {})
+    casting_time = mechanics.get("casting_time")
+    if isinstance(casting_time, dict):
+        return str(casting_time.get(locale) or casting_time.get("fr") or "")
+    return str(casting_time or "")
+
+
+def spell_combat_action_kind(
+    spell: CombatSpellEffect,
+    *,
+    locale: str = "fr",
+) -> ActionKind:
+    """Action ou action bonus — dérivé du temps d'incantation SRD (YAML)."""
+    text = _casting_time_text(spell.spell_def, locale=locale).lower()
+    if "bonus" in text or "action bonus" in text:
+        return "bonus_action"
+    return "action"
