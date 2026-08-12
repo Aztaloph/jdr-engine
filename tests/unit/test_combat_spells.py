@@ -133,7 +133,7 @@ def _cleric(*, name: str = "Clerc") -> Character:
         choices={
             "spellcasting": {
                 "cantrips_known": ["sacred_flame"],
-                "spells_prepared": ["bless", "cure_wounds"],
+                "spells_prepared": ["bless", "cure_wounds", "inflict_wounds"],
                 "slots_used": {},
             }
         },
@@ -306,6 +306,22 @@ class TestCombatSpells(unittest.TestCase):
             rng=RandSequence([18, 3, 4, 17, 5, 6, 16, 2, 3]),
         )
         self.assertLess(state.combatants[target_id].hp_current, hp_before)
+
+    def test_inflict_wounds_melee_via_cast_spell(self) -> None:
+        combat_id, ids = self._active_two(self.cleric.id, self.wizard.id)
+        caster_id = ids[self.cleric.id]
+        target_id = ids[self.wizard.id]
+        hp_before = self.manager.load_combat(combat_id).combatants[target_id].hp_current
+
+        state = self.manager.cast_spell(
+            combat_id,
+            caster_id,
+            "inflict_wounds",
+            [target_id],
+            rng=RandSequence([16, 4, 5, 6]),
+        )
+        self.assertLess(state.combatants[target_id].hp_current, hp_before)
+        self.assertIsInstance(self.events[0], SpellCast)
 
     def test_heal_combatant_revives_inactive(self) -> None:
         combat_id, ids = self._active_two(self.wizard.id, self.target.id)

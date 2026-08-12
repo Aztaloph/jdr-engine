@@ -50,6 +50,10 @@ export interface Combatant {
   ability_scores?: Partial<Record<AbilityId, number>>;
   ability_modifiers?: Partial<Record<AbilityId, number>>;
   ability_labels?: Partial<Record<AbilityId, string>>;
+  class_id?: string;
+  class_name?: string;
+  level?: number;
+  race_name?: string;
 }
 
 export interface ActiveEffect {

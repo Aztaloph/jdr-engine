@@ -253,6 +253,78 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
         self.assertIn("magic_missile", castable)
         self.assertNotIn("shield", castable)
 
+    def test_wizard_scorching_ray_when_prepared_even_if_slots_exhausted(self) -> None:
+        state, wizard = self._wizard_state(turn_index=1)
+        char = _wizard_character(
+            prepared=["magic_missile", "scorching_ray"],
+        )
+        char = Character(
+            id=char.id,
+            owner_id=char.owner_id,
+            guild_id=char.guild_id,
+            name=char.name,
+            race_id=char.race_id,
+            class_id=char.class_id,
+            level=char.level,
+            ability_scores=char.ability_scores,
+            hp_current=char.hp_current,
+            hp_max=char.hp_max,
+            choices={
+                "spellcasting": {
+                    "cantrips_known": ["fire_bolt"],
+                    "spells_prepared": ["magic_missile", "scorching_ray"],
+                    "slots_used": {"1": 4, "2": 2},
+                }
+            },
+        )
+        castable = list_combat_castable_spell_ids(
+            state,
+            wizard,
+            char,
+            self.engine,
+        )
+        self.assertIn("scorching_ray", castable)
+        self.assertIn("magic_missile", castable)
+
+    def test_wizard_level_2_hides_scorching_ray(self) -> None:
+        state, wizard = self._wizard_state(turn_index=1)
+        char = Character(
+            id="wiz_lv2",
+            owner_id="114",
+            guild_id="guild1",
+            name="Magicien",
+            race_id="human",
+            class_id="wizard",
+            level=2,
+            ability_scores=AbilityScores(
+                scores={
+                    "str": 8,
+                    "dex": 14,
+                    "con": 12,
+                    "int": 16,
+                    "wis": 10,
+                    "cha": 10,
+                }
+            ),
+            hp_current=20,
+            hp_max=20,
+            choices={
+                "spellcasting": {
+                    "cantrips_known": ["fire_bolt"],
+                    "spells_prepared": ["magic_missile", "scorching_ray"],
+                    "slots_used": {},
+                }
+            },
+        )
+        castable = list_combat_castable_spell_ids(
+            state,
+            wizard,
+            char,
+            self.engine,
+        )
+        self.assertIn("magic_missile", castable)
+        self.assertNotIn("scorching_ray", castable)
+
     def test_preparing_combat_returns_empty(self) -> None:
         state, ranger, _ = self._state()
         state = CombatState(

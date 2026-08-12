@@ -303,6 +303,12 @@ def _combatant_to_dict(
             payload["ability_scores"] = dict(ability_snapshot["ability_scores"])
             payload["ability_modifiers"] = dict(ability_snapshot["ability_modifiers"])
             payload["ability_labels"] = dict(ability_snapshot["ability_labels"])
+            if "class_id" in ability_snapshot:
+                payload["class_id"] = ability_snapshot["class_id"]
+                payload["class_name"] = ability_snapshot["class_name"]
+                payload["level"] = ability_snapshot["level"]
+            if ability_snapshot.get("race_name"):
+                payload["race_name"] = ability_snapshot["race_name"]
 
     return payload
 

@@ -837,6 +837,9 @@ class TestApiV1CombatRead(unittest.TestCase):
         self.assertIn("ability_scores", combatants[alice_cid])
         self.assertEqual(combatants[alice_cid]["ability_modifiers"]["str"], 3)
         self.assertNotIn("ability_scores", combatants[bob_cid])
+        self.assertEqual(combatants[alice_cid]["class_id"], "fighter")
+        self.assertEqual(combatants[alice_cid]["level"], 1)
+        self.assertIn("class_name", combatants[alice_cid])
 
     def test_get_and_advance_turn_viewer_parity(self) -> None:
         combat_id = self._active_combat_id()
@@ -948,7 +951,7 @@ def _cleric(*, char_id: str, name: str = "Clerc") -> Character:
         choices={
             "spellcasting": {
                 "cantrips_known": ["sacred_flame"],
-                "spells_prepared": ["bless", "burning_hands", "cure_wounds"],
+                "spells_prepared": ["bless", "burning_hands", "cure_wounds", "inflict_wounds"],
                 "slots_used": {},
             }
         },
@@ -1001,6 +1004,9 @@ class TestApiV1CombatCast(unittest.TestCase):
                 engine=self.engine,
                 db_path=self.db_path,
                 combat_initiative_rng=InitiativeSequence([18, 14, 6]),
+                combat_attack_rng=RandSequence(
+                    [18, 4, 5, 6, 18, 3, 4, 17, 5, 6, 16, 2, 3, 2, 3, 4]
+                ),
             )
         )
 
@@ -1225,6 +1231,7 @@ class TestApiV1CombatCast(unittest.TestCase):
         self.assertEqual(viewer["combatant_id"], wizard_id)
         self.assertIn("fire_bolt", viewer["castable_spells"])
         self.assertIn("magic_missile", viewer["castable_spells"])
+        self.assertIn("scorching_ray", viewer["castable_spells"])
         self.assertEqual(viewer["castable_reaction_spells"], [])
 
     def test_post_cast_magic_missile_auto_hit(self) -> None:
@@ -1277,6 +1284,32 @@ class TestApiV1CombatCast(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         target = response.json()["combatants"][target_cid]
+        self.assertLess(target["hp_current"], hp_before)
+
+    def test_post_cast_inflict_wounds_melee(self) -> None:
+        state = self._create_and_activate(channel_id="cast-inflict-wounds")
+        combat_id = state["combat_id"]
+        cleric_cid = self._combatant_for_character(state, self.cleric.id)
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+        hp_before = state["combatants"][wizard_cid]["hp_current"]
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.cleric.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": cleric_cid,
+                "spell_id": "inflict_wounds",
+                "target_ids": [wizard_cid],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        target = response.json()["combatants"][wizard_cid]
         self.assertLess(target["hp_current"], hp_before)
 
     def test_post_heal_revives_combatant(self) -> None:

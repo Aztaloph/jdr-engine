@@ -87,6 +87,18 @@
   const castableReactionSpells = $derived(
     combat?.viewer?.castable_reaction_spells ?? [],
   );
+  const OVERLAY_SPELL_IDS = new Set([
+    "hunters_mark",
+    "hex",
+    "bless",
+    "shield",
+  ]);
+  const overlayCastableSpells = $derived(
+    castableSpells.filter((id) => OVERLAY_SPELL_IDS.has(id)),
+  );
+  const resolvedCastableSpells = $derived(
+    castableSpells.filter((id) => !OVERLAY_SPELL_IDS.has(id)),
+  );
   const viewerSpellcasting = $derived(combat?.viewer?.spellcasting ?? null);
   const preparedRechoicePending = $derived(
     viewerSpellcasting?.prepared_rechoice_pending === true,
@@ -108,6 +120,17 @@
     return Object.keys(sc.slots_max).sort(
       (a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10),
     );
+  });
+
+  /** Sorts niv. 1+ préparés du viewer (hors cantrips) — affichage aide HUD. */
+  const viewerPreparedLeveled = $derived.by(() => {
+    const sc = viewerSpellcasting;
+    if (!sc) {
+      return [] as string[];
+    }
+    const cantrips = new Set(sc.cantrips_known ?? []);
+    const prepared = sc.spells_prepared ?? sc.spells_known ?? [];
+    return prepared.filter((id) => !cantrips.has(id));
   });
 
   const combatParticipants = $derived(
@@ -697,10 +720,16 @@
               <div class="active-id">
                 <strong class="active-name">{sheetCombatant.display_name}</strong>
                 <span class="active-sub">
+                  {#if sheetCombatant.class_name != null && sheetCombatant.level != null}
+                    {sheetCombatant.race_name
+                      ? `${sheetCombatant.race_name} · `
+                      : ""}{sheetCombatant.class_name} · niv. {sheetCombatant.level}
+                  {/if}
                   {#if viewer.trim() && combat?.viewer?.combatant_id && combat.current_combatant_id !== combat.viewer.combatant_id && currentTurnCombatant}
+                    {#if sheetCombatant.class_name != null && sheetCombatant.level != null}
+                      ·
+                    {/if}
                     Tour de {currentTurnCombatant.display_name}
-                  {:else}
-                    Classe et niveau — à venir
                   {/if}
                 </span>
               </div>
@@ -847,10 +876,26 @@
                   {/each}
                 </div>
               {/if}
-              {#if castableSpells.length > 0}
-                <p class="spell-section-label">Action / bonus</p>
+              {#if overlayCastableSpells.length > 0}
+                <p class="spell-section-label">Overlay (buff / marque)</p>
                 <div class="spell-actions">
-                  {#each castableSpells as spellId (spellId)}
+                  {#each overlayCastableSpells as spellId (spellId)}
+                    <button
+                      type="button"
+                      class="btn-spell"
+                      onclick={() => launchSpell(spellId)}
+                      disabled={!canCastSpell}
+                    >
+                      <Icon name="sparkle" size={12} />
+                      {spellId}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+              {#if resolvedCastableSpells.length > 0}
+                <p class="spell-section-label">Attaque / sauvegarde</p>
+                <div class="spell-actions">
+                  {#each resolvedCastableSpells as spellId (spellId)}
                     <button
                       type="button"
                       class="btn-spell"
@@ -890,7 +935,8 @@
                     </p>
                   {:else}
                     <p class="hint">
-                      Aucun sort overlay lançable pour cette fiche (voir la liste ci-dessous).
+                      Aucun sort lançable maintenant — vérifiez tour propre, préparation
+                      et emplacements.
                     </p>
                   {/if}
                 {:else}
@@ -899,10 +945,20 @@
                   </p>
                 {/if}
               {/if}
-              <p class="hint spell-help">
-                Sorts combat (overlay v1) : <code>hunters_mark</code> rôdeur ·
-                <code>bless</code> clerc · <code>hex</code> · <code>shield</code> (réaction).
-              </p>
+              {#if viewerSpellcasting && viewerPreparedLeveled.length > 0}
+                <p class="hint spell-help">
+                  Préparés (niv. 1+) :
+                  {#each viewerPreparedLeveled as spellId, i (spellId)}
+                    {#if i > 0} · {/if}<code>{spellId}</code>
+                  {/each}.
+                  Seuls les sorts combat (attaque, sauvegarde, overlay) ont un bouton —
+                  ex. <code>detect_magic</code> ou <code>cure_wounds</code> n’apparaissent pas ici.
+                </p>
+              {:else if viewer.trim() && viewerSpellcasting}
+                <p class="hint spell-help">
+                  Aucun sort niv. 1+ préparé sur cette fiche.
+                </p>
+              {/if}
             </div>
 
             {#if preparedRechoicePending && preparedContext?.pool}

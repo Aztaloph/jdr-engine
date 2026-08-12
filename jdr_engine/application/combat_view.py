@@ -121,5 +121,9 @@ def resolve_combatant_ability_snapshots(
             "ability_scores": dict(sheet.ability_scores),
             "ability_modifiers": dict(sheet.ability_modifiers),
             "ability_labels": labels,
+            "class_id": sheet.class_id,
+            "class_name": sheet.class_name,
+            "level": sheet.level,
+            "race_name": sheet.race_name,
         }
     return snapshots

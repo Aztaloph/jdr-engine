@@ -10,9 +10,8 @@ from jdr_engine.rules.combat.overlay_cast import OVERLAY_CAST_REGISTRY
 from jdr_engine.rules.combat.spell_resolution import load_combat_spell
 from jdr_engine.rules.engine import RuleEngine
 from jdr_engine.rules.spellcasting.cast import SpellCastError
-from jdr_engine.rules.spellcasting.slots import get_remaining_slots
+from jdr_engine.rules.spellcasting.slots import get_max_spell_slots
 from jdr_engine.rules.spellcasting.state import (
-    get_slots_used,
     list_spell_autocomplete_ids,
     spell_is_available,
 )
@@ -75,6 +74,14 @@ def _list_overlay_spell_ids(
     return castable
 
 
+def _max_castable_spell_level(class_id: str, character_level: int) -> int:
+    """Niveau de sort le plus élevé lançable (table d'emplacements SRD)."""
+    max_slots = get_max_spell_slots(class_id, character_level)
+    if not max_slots:
+        return 0
+    return max(max_slots)
+
+
 def _list_resolved_combat_spell_ids(
     state: CombatState,
     combatant: Combatant,
@@ -95,11 +102,7 @@ def _list_resolved_combat_spell_ids(
     if current_id != combatant.combatant_id:
         return []
 
-    remaining = get_remaining_slots(
-        character.class_id,
-        character.level,
-        get_slots_used(character),
-    )
+    max_spell_level = _max_castable_spell_level(character.class_id, character.level)
     castable: list[str] = []
     for spell_id in list_spell_autocomplete_ids(character):
         if spell_id in OVERLAY_CAST_REGISTRY:
@@ -112,9 +115,7 @@ def _list_resolved_combat_spell_ids(
             continue
         if spell.effect_type not in ("spell_attack", "saving_throw"):
             continue
-        if spell.spell_level > 0 and not any(
-            rem > 0 and lvl >= spell.spell_level for lvl, rem in remaining.items()
-        ):
+        if spell.spell_level > max_spell_level:
             continue
         castable.append(spell_id)
     return castable

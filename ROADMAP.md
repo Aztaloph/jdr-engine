@@ -37,9 +37,9 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 <!-- ROADMAP-AUTO:START -->
 | Indicateur | Valeur |
 |---|---|
-| Tests unitaires | **974** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
+| Tests unitaires | **978** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
 | Sorts curated (YAML) | **42** (`compendium/dnd5e/entries/spells/*/definition.yaml`) |
-| Commit HEAD | `ea07bb1` |
+| Commit HEAD | `1bbd713` |
 | Dernière sync auto | 2026-08-12 |
 <!-- ROADMAP-AUTO:END -->
 
