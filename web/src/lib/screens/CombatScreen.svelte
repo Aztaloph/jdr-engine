@@ -2,6 +2,7 @@
   import {
     advanceCombatTurn,
     closeCombat,
+    fetchCombatJournal,
     fetchCombatState,
     healCombatant,
     isLoadError,
@@ -25,7 +26,6 @@
   import type { PreparedSpellsView } from "../types/prepared_spells";
   import {
     WEAPON_IDS,
-    type WeaponAttackResult,
     type WeaponId,
   } from "../types/attack";
   import { link, router } from "svelte-spa-router";
@@ -243,6 +243,28 @@
   function applyCombatState(state: CombatState) {
     combat = state;
     syncAttackSelectors(state);
+    void syncJournalFromServer();
+  }
+
+  async function syncJournalFromServer() {
+    if (!combatId.trim()) {
+      return;
+    }
+    try {
+      const entries = await fetchCombatJournal(combatId);
+      journal = entries.map((entry) => ({
+        id: entry.log_id,
+        kind: entry.kind,
+        summary: entry.summary,
+        detail: entry.detail,
+        time: new Date(entry.created_at).toLocaleTimeString("fr-FR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      }));
+    } catch {
+      /* journal non bloquant */
+    }
   }
 
   function pushJournal(entry: Omit<JournalEntry, "id" | "time">) {
@@ -390,39 +412,14 @@
     }
   }
 
-  function describeAttack(
-    state: CombatState,
-    result: WeaponAttackResult,
-    attacker: string,
-    target: string,
-  ): { summary: string; detail: string } {
-    const atkName = combatantName(attacker, state);
-    const tgtName = combatantName(target, state);
-    const hit = result.attack.outcome.hit;
-    const summary = hit
-      ? `${atkName} touche ${tgtName} (${result.attack.d20.total} vs CA ${result.attack.outcome.target_ac})`
-      : `${atkName} manque ${tgtName} (${result.attack.d20.total} vs CA ${result.attack.outcome.target_ac})`;
-    let detail = `Arme · d20=${result.attack.d20.kept_value}, mod ${result.attack.d20.modifier >= 0 ? "+" : ""}${result.attack.d20.modifier}`;
-    if (result.damage) {
-      detail += ` · dégâts ${result.damage.total ?? result.damage.damage_dealt}`;
-      if (result.damage.hp_before !== undefined && result.damage.hp_after !== undefined) {
-        detail += ` · PV ${result.damage.hp_before}→${result.damage.hp_after}`;
-      }
-    }
-    return { summary, detail };
-  }
-
   async function launchAttack() {
     if (!canAttack || !combat) {
       return;
     }
     error = null;
     loading = true;
-    const stateSnapshot = combat;
-    const atk = attackerId;
-    const tgt = targetId;
     try {
-      const result = await postWeaponAttack(
+      await postWeaponAttack(
         combatId,
         {
           attacker_id: attackerId,
@@ -431,8 +428,6 @@
         },
         viewer,
       );
-      const { summary, detail } = describeAttack(stateSnapshot, result, atk, tgt);
-      pushJournal({ kind: "attack", summary, detail });
       await refreshCombat();
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
@@ -448,7 +443,6 @@
     error = null;
     loading = true;
     const casterId = combat.viewer.combatant_id;
-    const tgt = targetId;
     try {
       const next = await postCombatCast(
         combatId,
@@ -460,13 +454,6 @@
         viewer,
       );
       applyCombatState(next);
-      const casterName = combatantName(casterId, next);
-      const targetName = combatantName(tgt, next);
-      pushJournal({
-        kind: "spell",
-        summary: `${casterName} lance ${spellId} sur ${targetName}`,
-        detail: `Sort overlay · cible ${tgt}`,
-      });
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
     } finally {
@@ -544,12 +531,6 @@
         viewer,
       );
       applyCombatState(next);
-      const casterName = combatantName(casterId, next);
-      pushJournal({
-        kind: "spell",
-        summary: `${casterName} lance ${spellId} (réaction)`,
-        detail: "Sort overlay · réaction · auto-cible",
-      });
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
     } finally {

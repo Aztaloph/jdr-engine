@@ -1290,5 +1290,99 @@ class TestApiV1CombatCast(unittest.TestCase):
         )
 
 
+class TestApiV1CombatEvents(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = _engine()
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = init_database(Path(self._tmpdir.name) / "bot.db")
+        self.repo = SqliteCharacterRepository(self.db_path)
+        self.wizard = Character(
+            id="evt_wizard",
+            owner_id="112",
+            guild_id="guild1",
+            name="Mage",
+            race_id="human",
+            class_id="wizard",
+            level=3,
+            ability_scores=AbilityScores(
+                scores={
+                    "str": 8,
+                    "dex": 14,
+                    "con": 12,
+                    "int": 16,
+                    "wis": 10,
+                    "cha": 10,
+                }
+            ),
+            hp_current=20,
+            hp_max=20,
+            choices={
+                "spellcasting": {
+                    "cantrips_known": ["fire_bolt"],
+                    "spells_prepared": ["fire_bolt", "magic_missile"],
+                    "slots_used": {},
+                }
+            },
+        )
+        self.target = _cleric(char_id="evt_cleric", name="Cible")
+        self.repo.save(self.wizard)
+        self.repo.save(self.target)
+        self.client = TestClient(
+            create_app(
+                engine=self.engine,
+                db_path=self.db_path,
+                combat_initiative_rng=InitiativeSequence([15, 10]),
+                combat_attack_rng=RandSequence([15, 6]),
+            )
+        )
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_get_combat_events_after_attack(self) -> None:
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [self.wizard.id, self.target.id],
+                "channel_id": "evt-test",
+            },
+        )
+        combat_id = created.json()["combat_id"]
+        self.client.post(f"/v1/combats/{combat_id}/activate")
+
+        state = self.client.get(f"/v1/combats/{combat_id}").json()
+        wizard_cid = next(
+            cid
+            for cid, c in state["combatants"].items()
+            if c["character_id"] == self.wizard.id
+        )
+        cleric_cid = next(
+            cid
+            for cid, c in state["combatants"].items()
+            if c["character_id"] == self.target.id
+        )
+
+        attack = self.client.post(
+            f"/v1/combats/{combat_id}/attack",
+            json={
+                "attacker_id": wizard_cid,
+                "target_id": cleric_cid,
+                "weapon_id": "longsword",
+            },
+        )
+        self.assertEqual(attack.status_code, 200, attack.text)
+
+        events = self.client.get(f"/v1/combats/{combat_id}/events")
+        self.assertEqual(events.status_code, 200)
+        body = events.json()
+        self.assertEqual(body["combat_id"], combat_id)
+        self.assertGreater(len(body["events"]), 0)
+        summaries = " ".join(e["summary"] for e in body["events"])
+        self.assertIn("dégâts", summaries.lower())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

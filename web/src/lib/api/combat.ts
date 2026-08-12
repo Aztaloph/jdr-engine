@@ -1,4 +1,4 @@
-import type { ApiErrorPayload, CombatState, LoadError } from "../types/combat";
+import type { ApiErrorPayload, CombatJournalEntry, CombatState, LoadError } from "../types/combat";
 import type { WeaponAttackResult, WeaponId } from "../types/attack";
 
 const API_UNREACHABLE_MESSAGE =
@@ -366,6 +366,32 @@ export async function createCombat(characterIds: string[]): Promise<CombatState>
     throw result;
   }
   return result;
+}
+
+export async function fetchCombatJournal(combatId: string): Promise<CombatJournalEntry[]> {
+  const id = combatId.trim();
+  if (!id) {
+    throw { kind: "network", message: "combat_id requis." } satisfies LoadError;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`/v1/combats/${encodeURIComponent(id)}/events`);
+  } catch (cause) {
+    throw {
+      kind: "network",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : "API injoignable — vérifiez qu'uvicorn tourne sur le port 8000.",
+    } satisfies LoadError;
+  }
+
+  const result = await parseJsonResponse<{ events: CombatJournalEntry[] }>(res);
+  if ("kind" in result) {
+    throw result;
+  }
+  return result.events ?? [];
 }
 
 export async function activateCombat(combatId: string): Promise<CombatState> {

@@ -97,7 +97,7 @@ def create_app(
         repository,
         SqliteCombatLogRepository(resolved_db_path),
         engine,
-        register_auto_save_handler=False,
+        register_auto_save_handler=True,
     )
 
     app = FastAPI(

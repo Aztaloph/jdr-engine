@@ -119,3 +119,13 @@ export interface ApiErrorPayload {
 export type LoadError =
   | { kind: "api"; status: number; code: string; message: string }
   | { kind: "network"; message: string };
+
+/** Entrée journal — ``GET /v1/combats/{id}/events``. */
+export interface CombatJournalEntry {
+  log_id: number;
+  kind: "attack" | "spell" | "system";
+  summary: string;
+  detail: string;
+  event_type: string;
+  created_at: string;
+}

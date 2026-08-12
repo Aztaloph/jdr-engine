@@ -20,6 +20,7 @@ from jdr_engine.application.combat_view import (
     resolve_combatant_ability_snapshots,
     resolve_viewer_context,
 )
+from jdr_engine.application.combat_journal import format_combat_log
 from jdr_engine.application.combat_service import CombatService
 from jdr_engine.application.dto.output_serializers import (
     WeaponAttackResult,
@@ -224,6 +225,23 @@ def register_combat_routes(
                 "Combat introuvable.",
                 details={"combat_id": combat_id},
             ) from exc
+
+    @app.get("/v1/combats/{combat_id}/events")
+    def get_combat_events(combat_id: int) -> dict:
+        try:
+            state = combat_service.load_combat(combat_id)
+        except CombatNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBAT_NOT_FOUND",
+                "Combat introuvable.",
+                details={"combat_id": combat_id},
+            ) from exc
+        entries = combat_service.get_event_log(combat_id)
+        return {
+            "combat_id": combat_id,
+            "events": format_combat_log(entries, state),
+        }
 
     @app.post("/v1/combats/{combat_id}/activate")
     def activate_combat(combat_id: int, request: Request) -> dict:
