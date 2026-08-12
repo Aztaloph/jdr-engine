@@ -13,28 +13,25 @@
     type WeaponAttackResult,
     type WeaponId,
   } from "../types/attack";
-  import { router } from "svelte-spa-router";
+  import { link, router } from "svelte-spa-router";
   import { navigateToCombat, navigateToLobby, viewerFromQuerystring } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
   import Panel from "../components/combat/Panel.svelte";
   import CombatantCard from "../components/combat/CombatantCard.svelte";
+  import CharacterPortrait from "../components/combat/CharacterPortrait.svelte";
+  import Icon from "../components/combat/Icon.svelte";
   import JournalItem from "../components/combat/JournalItem.svelte";
   import MapPlaceholder from "../components/combat/MapPlaceholder.svelte";
   import DiceBar from "../components/combat/DiceBar.svelte";
 
-  type JournalEntry =
-    | {
-        id: number;
-        kind: "attack";
-        summary: string;
-        detail: string;
-      }
-    | {
-        id: number;
-        kind: "spell";
-        summary: string;
-        detail: string;
-      };
+  type JournalEntry = {
+    id: number;
+    kind: "attack" | "spell";
+    summary: string;
+    detail: string;
+    /** Heure locale du client au moment de l'action — cosmétique. */
+    time: string;
+  };
 
   let {
     params = {},
@@ -165,41 +162,18 @@
     return `${c.display_name} (${cid})`;
   }
 
-  function initialsOf(name: string): string {
-    return name
-      .split(/\s+/)
-      .map((word) => word[0] ?? "")
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-  }
-
-  function formatHp(c: CombatState["combatants"][string]): string {
-    if (c.hp_current === undefined) {
-      return "PV —";
-    }
-    const max = c.hp_max !== undefined ? `/${c.hp_max}` : "";
-    return `PV ${c.hp_current}${max}`;
-  }
-
-  function budgetLine(
-    label: string,
-    available: boolean | undefined,
-  ): string {
-    if (available === undefined) {
-      return `${label} : —`;
-    }
-    return `${label} : ${available ? "disponible" : "consommée"}`;
-  }
-
   function applyCombatState(state: CombatState) {
     combat = state;
     syncAttackSelectors(state);
   }
 
-  function pushJournal(entry: Omit<JournalEntry, "id">) {
+  function pushJournal(entry: Omit<JournalEntry, "id" | "time">) {
     journalSeq += 1;
-    journal = [{ ...entry, id: journalSeq }, ...journal];
+    const time = new Date().toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    journal = [{ ...entry, id: journalSeq, time }, ...journal];
   }
 
   async function loadCombat(id: string, viewerParam: string) {
@@ -351,24 +325,36 @@
       loading = false;
     }
   }
+
+  const ABILITY_LABELS = ["FOR", "DEX", "CON", "INT", "SAG", "CHA"] as const;
 </script>
 
 <div class="combat-screen">
   <header class="topbar">
     <div class="topbar-brand">
-      <span class="brand">JDR Engine</span>
-      <span class="sep" aria-hidden="true">·</span>
-      <h1 class="encounter">Rencontre <span class="mono">#{combatId}</span></h1>
-      <span class="soon-chip">Campagne — à venir</span>
+      <a href="/" use:link class="brand">JDR Engine</a>
+      <span class="sep" aria-hidden="true"></span>
+      <div class="encounter-block">
+        <h1 class="encounter">Rencontre <span class="mono">#{combatId}</span></h1>
+        <span class="encounter-sub">Campagne — à venir</span>
+      </div>
     </div>
 
     {#if combat}
       <div class="topbar-pills">
-        <span class="pill pill-accent">Round {combat.round_number}</span>
+        <span class="pill pill-accent">
+          <Icon name="flag" size={11} />
+          Round {combat.round_number}
+        </span>
         {#if currentTurnCombatant}
-          <span class="pill">Tour de : <strong>{currentTurnCombatant.display_name}</strong></span>
+          <span class="pill pill-turn">
+            Tour de <strong>{currentTurnCombatant.display_name}</strong>
+          </span>
         {/if}
-        <span class="pill pill-muted">{combat.status}</span>
+        <span class="pill pill-muted" class:pill-live={combat.status === "active"}>
+          <span class="status-dot" aria-hidden="true"></span>
+          {combat.status}
+        </span>
       </div>
     {/if}
 
@@ -397,17 +383,28 @@
           />
         </label>
       {/if}
-      <button type="button" onclick={reload} disabled={loading}>
+      <button
+        type="button"
+        class="top-btn"
+        onclick={reload}
+        disabled={loading}
+        title="Round et initiative mis à jour après chaque action"
+      >
+        <Icon name="refresh" size={13} />
         {loading ? "Chargement…" : "Recharger"}
       </button>
-      <button type="button" onclick={closeAndReturnToLobby} disabled={loading || !combatId}>
+      <button
+        type="button"
+        class="top-btn danger"
+        onclick={closeAndReturnToLobby}
+        disabled={loading || !combatId}
+      >
+        <Icon name="exit" size={13} />
         Clôturer
       </button>
+      <a href="/lobby" use:link class="top-link">Lobby</a>
     </div>
   </header>
-  <p class="topbar-hint hint">
-    Round et initiative mis à jour après chaque action.
-  </p>
 
   {#if error}
     <ErrorAlert {error} />
@@ -416,7 +413,7 @@
   {#if combat}
     <div class="hud-grid" aria-live="polite">
       <div class="col col-left">
-        <Panel title="Membres du groupe">
+        <Panel title="Membres du groupe" icon="users" badge={`${groupOrder.length}`}>
           {#if groupOrder.length === 0}
             <p class="hint">Aucun combattant.</p>
           {:else}
@@ -433,24 +430,27 @@
           {/if}
         </Panel>
 
-        <Panel title="Ordre d'initiative">
+        <Panel title="Ordre d'initiative" icon="flag">
           {#if combat.initiative_order.length === 0}
             <p class="hint">Ordre vide.</p>
           {:else}
             <ol class="init-track">
-              {#each combat.initiative_order as cid (cid)}
+              {#each combat.initiative_order as cid, idx (cid)}
                 {@const c = combat.combatants[cid]}
                 <li
                   class="init-token"
                   class:is-turn={cid === combat.current_combatant_id}
                   class:is-inactive={c !== undefined && !c.is_active}
                 >
-                  <span class="init-avatar" aria-hidden="true">
-                    {initialsOf(c?.display_name ?? cid)}
-                  </span>
+                  <span class="init-rank mono">{idx + 1}</span>
+                  <CharacterPortrait
+                    name={c?.display_name ?? cid}
+                    size={32}
+                    active={cid === combat.current_combatant_id}
+                  />
                   <span class="init-name">{c?.display_name ?? cid}</span>
                   {#if c?.initiative_total !== undefined}
-                    <span class="init-score">{c.initiative_total}</span>
+                    <span class="init-score mono">{c.initiative_total}</span>
                   {/if}
                 </li>
               {/each}
@@ -459,13 +459,13 @@
         </Panel>
 
         {#if combat.active_effects.length > 0}
-          <Panel title="Effets actifs">
+          <Panel title="Effets actifs" icon="wand" badge={`${combat.active_effects.length}`}>
             <ul class="effects-list">
               {#each combat.active_effects as effect (effect.effect_id + effect.target_id + effect.applied_at_round)}
-                <li>
-                  <span class="mono">{effect.effect_id}</span>
-                  → {combatantName(effect.target_id, combat)}
-                  <span class="hint">(round {effect.applied_at_round}, {effect.expiry_mode})</span>
+                <li class="effect-row">
+                  <span class="effect-name mono">{effect.effect_id}</span>
+                  <span class="effect-target">→ {combatantName(effect.target_id, combat)}</span>
+                  <span class="effect-meta">round {effect.applied_at_round} · {effect.expiry_mode}</span>
                 </li>
               {/each}
             </ul>
@@ -478,52 +478,76 @@
       </div>
 
       <div class="col col-right">
-        <Panel
-          title={currentTurnCombatant
-            ? `Fiche active : ${currentTurnCombatant.display_name}`
-            : "Fiche active"}
-        >
+        <Panel title="Fiche active" icon="user">
           {#if currentTurnCombatant}
-            <div class="active-stats">
-              <span>{formatHp(currentTurnCombatant)}</span>
-              {#if currentTurnCombatant.ac !== undefined}
-                <span>CA {currentTurnCombatant.ac}</span>
-              {/if}
+            <div class="active-head">
+              <CharacterPortrait name={currentTurnCombatant.display_name} size={44} active />
+              <div class="active-id">
+                <strong class="active-name">{currentTurnCombatant.display_name}</strong>
+                <span class="active-sub">Classe et niveau — à venir</span>
+              </div>
             </div>
+
+            <div class="vital-chips">
+              <div class="vital">
+                <span class="vital-label">PV</span>
+                <span class="vital-value mono">
+                  {currentTurnCombatant.hp_current !== undefined
+                    ? `${currentTurnCombatant.hp_current}${currentTurnCombatant.hp_max !== undefined ? ` / ${currentTurnCombatant.hp_max}` : ""}`
+                    : "—"}
+                </span>
+              </div>
+              <div class="vital">
+                <span class="vital-label">CA</span>
+                <span class="vital-value mono">
+                  {currentTurnCombatant.ac !== undefined ? currentTurnCombatant.ac : "—"}
+                </span>
+              </div>
+            </div>
+
             {#if currentTurnCombatant.action_budget}
-              <ul class="budget-list">
-                <li>{budgetLine("Action", currentTurnCombatant.action_budget.has_action)}</li>
-                <li>{budgetLine("Action bonus", currentTurnCombatant.action_budget.has_bonus_action)}</li>
-                <li>{budgetLine("Réaction", currentTurnCombatant.action_budget.has_reaction)}</li>
-                <li>{budgetLine("Mouvement", currentTurnCombatant.action_budget.has_movement)}</li>
-              </ul>
+              {@const b = currentTurnCombatant.action_budget}
+              <div class="budget-chips">
+                <span class="budget-chip" class:used={!b.has_action}>Action</span>
+                <span class="budget-chip" class:used={!b.has_bonus_action}>Bonus</span>
+                <span class="budget-chip" class:used={!b.has_reaction}>Réaction</span>
+                <span class="budget-chip" class:used={!b.has_movement}>Mouvement</span>
+              </div>
             {:else}
               <p class="hint">Budget d'action non exposé pour ce combattant.</p>
             {/if}
+
             {#if currentTurnCombatant.concentration_spell_name}
               <p class="conc-line">
-                Concentration : {currentTurnCombatant.concentration_spell_name}
+                <Icon name="sparkle" size={12} />
+                Concentration : <strong>{currentTurnCombatant.concentration_spell_name}</strong>
                 {#if currentTurnCombatant.concentration_spell_id}
-                  <span class="mono">({currentTurnCombatant.concentration_spell_id})</span>
+                  <span class="mono conc-id">({currentTurnCombatant.concentration_spell_id})</span>
                 {/if}
               </p>
             {/if}
           {:else}
             <p class="hint">Aucun tour actif.</p>
           {/if}
-          <div class="stats-placeholder">
-            <span class="soon-chip">À venir</span>
-            <p class="hint">
-              Caractéristiques (FOR, DEX, CON, INT, SAG, CHA) — prévues dans un
-              lot ultérieur.
-            </p>
+
+          <div class="abilities">
+            {#each ABILITY_LABELS as ab (ab)}
+              <div class="ability" title="Caractéristiques — à venir">
+                <span class="ability-name">{ab}</span>
+                <span class="ability-value">—</span>
+              </div>
+            {/each}
           </div>
+          <p class="abilities-note">Caractéristiques — à venir</p>
         </Panel>
 
-        <Panel title="Actions rapides">
+        <Panel title="Actions rapides" icon="sword">
           {#if combat.status === "active"}
             <div class="action-block">
-              <h3 class="action-title">Attaque d'arme</h3>
+              <h3 class="action-title">
+                <Icon name="sword" size={12} />
+                Attaque d'arme
+              </h3>
               <div class="attack-form">
                 <label>
                   Attaquant
@@ -550,22 +574,34 @@
                   </select>
                 </label>
               </div>
-              <button type="button" class="btn-primary" onclick={launchAttack} disabled={!canAttack}>
+              <button
+                type="button"
+                class="btn-strike"
+                onclick={launchAttack}
+                disabled={!canAttack}
+              >
+                <Icon name="sword" size={14} />
                 {loading ? "Attaque…" : "Attaquer"}
               </button>
             </div>
 
+            <div class="action-sep" aria-hidden="true"></div>
+
             <div class="action-block">
-              <h3 class="action-title">Lancer un sort</h3>
+              <h3 class="action-title">
+                <Icon name="sparkle" size={12} />
+                Lancer un sort
+              </h3>
               {#if castableSpells.length > 0}
                 <div class="spell-actions">
                   {#each castableSpells as spellId (spellId)}
                     <button
                       type="button"
-                      class="btn-primary"
+                      class="btn-spell"
                       onclick={() => launchSpell(spellId)}
                       disabled={!canCastSpell}
                     >
+                      <Icon name="sparkle" size={12} />
                       {spellId}
                     </button>
                   {/each}
@@ -588,23 +624,28 @@
                   Choisissez un viewer (en haut) pour activer les sorts joueur.
                 </p>
               {/if}
-              <p class="hint">
+              <p class="hint spell-help">
                 Sorts combat (overlay v1) : <code>hunters_mark</code> rôdeur ·
                 <code>bless</code> clerc · <code>hex</code>. Au tour du viewer,
                 avec le budget requis (<code>shield</code> = réaction, hors panneau).
               </p>
             </div>
 
-            <button type="button" disabled title="En développement">
-              Compétences — à venir
+            <div class="action-sep" aria-hidden="true"></div>
+
+            <button type="button" class="btn-skill" disabled title="En développement">
+              <Icon name="wand" size={13} />
+              Compétences
+              <span class="soon-tag">À venir</span>
             </button>
 
             <button
               type="button"
-              class="btn-primary btn-endturn"
+              class="btn-endturn"
               onclick={advanceTurn}
               disabled={!canAdvance}
             >
+              <Icon name="next" size={14} />
               Fin de tour
             </button>
           {:else if combat.status === "preparing"}
@@ -614,13 +655,21 @@
           {/if}
         </Panel>
 
-        <Panel title="Journal de combat">
+        <Panel title="Journal de combat" icon="scroll" badge={`${journal.length}`}>
           {#if journal.length === 0}
-            <p class="hint">Aucune action enregistrée cette session.</p>
+            <p class="hint journal-empty">
+              Aucune action enregistrée cette session — les attaques et sorts
+              apparaîtront ici.
+            </p>
           {:else}
             <ol class="journal-list">
               {#each journal as entry (entry.id)}
-                <JournalItem kind={entry.kind} summary={entry.summary} detail={entry.detail} />
+                <JournalItem
+                  kind={entry.kind}
+                  summary={entry.summary}
+                  detail={entry.detail}
+                  time={entry.time}
+                />
               {/each}
             </ol>
           {/if}
@@ -637,6 +686,18 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-md);
+    min-height: 100vh;
+    padding: var(--space-md) var(--space-md) var(--space-lg);
+    background:
+      radial-gradient(ellipse 60% 40% at 50% 0%, rgb(245 158 11 / 0.04), transparent 70%),
+      linear-gradient(rgb(255 255 255 / 0.008) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.008) 1px, transparent 1px),
+      var(--color-bg-base);
+    background-size:
+      100% 100%,
+      44px 44px,
+      44px 44px,
+      100% 100%;
   }
 
   /* ---- barre supérieure ---- */
@@ -646,63 +707,81 @@
     align-items: center;
     gap: var(--space-md) var(--space-lg);
     flex-wrap: wrap;
-    padding: 0.6rem 0.9rem;
+    padding: 0.5rem 0.9rem;
     border: 1px solid var(--color-border-subtle);
     border-radius: var(--radius-lg);
-    background: var(--color-bg-elevated);
+    background:
+      linear-gradient(rgb(255 255 255 / 0.02), transparent 60%),
+      var(--color-bg-elevated);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.03),
+      0 6px 18px rgb(0 0 0 / 0.35);
   }
 
   .topbar-brand {
     display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.7rem;
     min-width: 0;
   }
 
   .brand {
     font-family: var(--font-display);
     font-weight: 700;
-    font-size: 1rem;
-    letter-spacing: 0.04em;
+    font-size: 0.95rem;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--color-accent);
     white-space: nowrap;
+    text-decoration: none;
+  }
+
+  .brand:hover {
+    color: var(--color-accent-hover);
   }
 
   .sep {
-    color: var(--color-text-muted);
+    width: 1px;
+    height: 1.8rem;
+    background: var(--color-border-subtle);
+  }
+
+  .encounter-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
   }
 
   .encounter {
     margin: 0;
     font-family: var(--font-display);
-    font-size: 1.05rem;
+    font-size: 1rem;
     font-weight: 600;
+    line-height: 1.2;
     white-space: nowrap;
   }
 
-  .soon-chip {
-    font-size: 0.66rem;
+  .encounter-sub {
+    font-size: 0.62rem;
     font-weight: 600;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-text-muted);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 999px;
-    padding: 0.1rem 0.5rem;
-    white-space: nowrap;
   }
 
   .topbar-pills {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.45rem;
     flex-wrap: wrap;
   }
 
   .pill {
-    font-size: 0.8rem;
-    padding: 0.2rem 0.65rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.76rem;
+    padding: 0.22rem 0.65rem;
     border-radius: 999px;
     border: 1px solid var(--color-border-default);
     background: var(--color-bg-panel);
@@ -710,15 +789,41 @@
   }
 
   .pill-accent {
-    border-color: var(--color-accent);
+    border-color: rgb(245 158 11 / 0.5);
+    background: rgb(245 158 11 / 0.08);
     color: var(--color-accent);
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
+    font-size: 0.7rem;
+  }
+
+  .pill-turn strong {
+    color: var(--color-accent);
   }
 
   .pill-muted {
     color: var(--color-text-muted);
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+  }
+
+  .pill-live .status-dot {
+    background: var(--color-success);
+    box-shadow: 0 0 6px rgb(74 222 128 / 0.6);
+  }
+
+  .pill-live {
+    color: var(--color-success);
   }
 
   .topbar-controls {
@@ -729,21 +834,57 @@
     margin-left: auto;
   }
 
-  .topbar-controls button {
-    padding: 0.4rem 0.7rem;
-    font-size: 0.85rem;
+  .top-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.38rem 0.7rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-panel);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-md);
+  }
+
+  .top-btn:hover:not(:disabled) {
+    background: var(--color-bg-input);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .top-btn.danger:hover:not(:disabled) {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+    background: var(--color-error-bg);
+  }
+
+  .top-link {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    padding: 0.42rem 0.55rem;
+    border-radius: var(--radius-md);
+  }
+
+  .top-link:hover {
+    color: var(--color-accent);
+    background: var(--color-accent-muted);
   }
 
   .viewer-control {
     margin: 0;
-    min-width: 15rem;
+    min-width: 14rem;
   }
 
   .viewer-label {
     display: block;
-    font-size: 0.7rem;
+    font-size: 0.62rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.08em;
     color: var(--color-text-muted);
     margin-bottom: 0.15rem;
   }
@@ -751,21 +892,19 @@
   .viewer-control select,
   .viewer-control input {
     margin-top: 0;
-    padding: 0.35rem 0.5rem;
-    font-size: 0.85rem;
-  }
-
-  .topbar-hint {
-    margin: -0.35rem 0 0 0.2rem;
+    padding: 0.32rem 0.5rem;
+    font-size: 0.82rem;
   }
 
   /* ---- grille trois colonnes ---- */
 
   .hud-grid {
     display: grid;
-    grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(295px, 340px);
+    grid-template-columns: minmax(260px, 305px) minmax(0, 1fr) minmax(300px, 355px);
     gap: var(--space-md);
-    align-items: start;
+    align-items: stretch;
+    flex: 1;
+    min-height: 0;
   }
 
   .col {
@@ -786,64 +925,68 @@
     margin: 0;
     padding: 0;
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: 0.3rem;
   }
 
   .init-token {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 0.2rem;
-    width: 4.2rem;
-    padding: 0.4rem 0.2rem;
-    border: 1px solid var(--color-border-subtle);
+    gap: 0.55rem;
+    padding: 0.32rem 0.5rem;
+    border: 1px solid transparent;
     border-radius: var(--radius-md);
-    background: var(--color-bg-panel);
-    text-align: center;
   }
 
   .init-token.is-turn {
-    border-color: var(--color-accent);
-    background: var(--color-accent-muted);
+    border-color: rgb(245 158 11 / 0.5);
+    background:
+      linear-gradient(90deg, rgb(245 158 11 / 0.1), transparent 70%);
   }
 
   .init-token.is-inactive {
-    opacity: 0.5;
+    opacity: 0.45;
+    filter: saturate(0.4);
   }
 
-  .init-avatar {
-    width: 1.9rem;
-    height: 1.9rem;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 0.75rem;
+  .init-rank {
+    flex-shrink: 0;
+    width: 1.2rem;
+    text-align: center;
+    font-size: 0.68rem;
     color: var(--color-text-muted);
-    background: var(--color-bg-input);
-    border: 1px solid var(--color-border-default);
   }
 
-  .init-token.is-turn .init-avatar {
+  .init-token.is-turn .init-rank {
     color: var(--color-accent);
-    border-color: var(--color-accent);
+    font-weight: 700;
   }
 
   .init-name {
-    font-size: 0.68rem;
-    max-width: 100%;
+    flex: 1;
+    min-width: 0;
+    font-size: 0.82rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .init-score {
-    font-family: var(--font-mono);
-    font-size: 0.78rem;
+  .init-token.is-turn .init-name {
     font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .init-score {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    font-weight: 700;
     color: var(--color-accent);
+    background: rgb(245 158 11 / 0.08);
+    border: 1px solid rgb(245 158 11 / 0.3);
+    border-radius: var(--radius-sm);
+    padding: 0.08rem 0.35rem;
+    min-width: 1.6rem;
+    text-align: center;
   }
 
   /* ---- effets ---- */
@@ -854,44 +997,183 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
-    font-size: 0.88rem;
+    gap: 0.3rem;
+  }
+
+  .effect-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    padding: 0.3rem 0.45rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-panel);
+    border: 1px solid var(--color-border-subtle);
+  }
+
+  .effect-name {
+    color: var(--color-accent);
+    font-size: 0.76rem;
+  }
+
+  .effect-meta {
+    margin-left: auto;
+    font-size: 0.68rem;
+    color: var(--color-text-muted);
   }
 
   /* ---- fiche active ---- */
 
-  .active-stats {
+  .active-head {
     display: flex;
-    gap: 1rem;
-    font-size: 0.95rem;
-    font-weight: 600;
+    align-items: center;
+    gap: 0.6rem;
   }
 
-  .budget-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
+  .active-id {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .active-name {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    letter-spacing: 0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .active-sub {
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .vital-chips {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.25rem 0.75rem;
-    font-size: 0.85rem;
+    gap: 0.45rem;
+  }
+
+  .vital {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background:
+      linear-gradient(rgb(255 255 255 / 0.015), transparent),
+      var(--color-bg-panel);
+  }
+
+  .vital-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .vital-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--color-text-primary);
+  }
+
+  .budget-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+
+  .budget-chip {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    color: var(--color-success);
+    border: 1px solid rgb(74 222 128 / 0.4);
+    background: rgb(34 197 94 / 0.08);
+  }
+
+  .budget-chip.used {
+    color: var(--color-text-muted);
+    border-color: var(--color-border-subtle);
+    background: transparent;
+    text-decoration: line-through;
+    opacity: 0.7;
   }
 
   .conc-line {
-    margin: 0;
-    font-size: 0.88rem;
-  }
-
-  .stats-placeholder {
     display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px dashed var(--color-border-default);
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--color-accent);
   }
 
-  .stats-placeholder .hint {
-    flex: 1;
+  .conc-line strong {
+    color: var(--color-text-primary);
+  }
+
+  .conc-id {
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+  }
+
+  .abilities {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0.3rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  .ability {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.05rem;
+    padding: 0.3rem 0.1rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-panel);
+  }
+
+  .ability-name {
+    font-size: 0.56rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+  }
+
+  .ability-value {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    opacity: 0.6;
+  }
+
+  .abilities-note {
+    margin: -0.2rem 0 0;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    text-align: right;
+    opacity: 0.7;
   }
 
   /* ---- actions rapides ---- */
@@ -903,47 +1185,157 @@
   }
 
   .action-title {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     margin: 0;
-    font-size: 0.78rem;
-    font-weight: 600;
+    font-size: 0.72rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--color-text-muted);
+    letter-spacing: 0.08em;
+    color: var(--color-text-secondary);
+  }
+
+  .action-title :global(svg) {
+    color: var(--color-accent);
+    opacity: 0.85;
+  }
+
+  .action-sep {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-border-default), transparent);
   }
 
   .attack-form {
     display: grid;
-    gap: 0.5rem;
+    gap: 0.4rem;
   }
 
   .attack-form label {
     margin-bottom: 0;
-    font-size: 0.82rem;
-  }
-
-  .btn-primary {
-    background: var(--color-accent);
-    color: var(--color-accent-text);
-    border-color: var(--color-accent);
+    font-size: 0.72rem;
     font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
-  .btn-primary:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-    border-color: var(--color-accent-hover);
+  .attack-form select {
+    font-size: 0.84rem;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: 400;
   }
 
-  .btn-endturn {
-    width: 100%;
+  .btn-strike {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0.55rem 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    background: linear-gradient(180deg, var(--color-accent), #d97706);
+    color: var(--color-accent-text);
+    border: 1px solid #b45309;
+    border-radius: var(--radius-md);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.25),
+      0 2px 8px rgb(245 158 11 / 0.2);
+  }
+
+  .btn-strike:hover:not(:disabled) {
+    background: linear-gradient(180deg, var(--color-accent-hover), var(--color-accent));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.25),
+      0 2px 12px rgb(245 158 11 / 0.35);
   }
 
   .spell-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 0.4rem;
+  }
+
+  .btn-spell {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--color-accent);
+    background: rgb(245 158 11 / 0.06);
+    border: 1px solid rgb(245 158 11 / 0.45);
+    border-radius: var(--radius-md);
+  }
+
+  .btn-spell:hover:not(:disabled) {
+    background: var(--color-accent-muted);
+    border-color: var(--color-accent);
+  }
+
+  .spell-help {
+    font-size: 0.72rem;
+    line-height: 1.5;
+    opacity: 0.85;
+  }
+
+  .btn-skill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: var(--color-bg-panel);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-md);
+  }
+
+  .btn-skill .soon-tag {
+    margin-left: auto;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    border: 1px solid rgb(245 158 11 / 0.4);
+    background: rgb(245 158 11 / 0.07);
+    border-radius: 999px;
+    padding: 0.1rem 0.4rem;
+  }
+
+  .btn-endturn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    width: 100%;
+    padding: 0.6rem 0.9rem;
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    background: rgb(245 158 11 / 0.07);
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    box-shadow: inset 0 0 12px rgb(245 158 11 / 0.05);
+  }
+
+  .btn-endturn:hover:not(:disabled) {
+    background: var(--color-accent);
+    color: var(--color-accent-text);
+    box-shadow: 0 2px 14px rgb(245 158 11 / 0.3);
   }
 
   /* ---- journal ---- */
+
+  .journal-empty {
+    font-style: italic;
+    opacity: 0.8;
+  }
 
   .journal-list {
     list-style: none;
@@ -951,12 +1343,20 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    max-height: 24rem;
+    gap: 0.4rem;
+    max-height: 22rem;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-default) transparent;
   }
 
   /* ---- responsive ---- */
+
+  @media (max-width: 1280px) {
+    .hud-grid {
+      grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(280px, 320px);
+    }
+  }
 
   @media (max-width: 1080px) {
     .hud-grid {
@@ -965,6 +1365,7 @@
 
     .col-center {
       order: -1;
+      min-height: 420px;
     }
 
     .topbar-controls {
