@@ -15,12 +15,13 @@ from jdr_engine.rules.spellcasting.cast import (
     _get_effects,
     _primary_effect,
     _resolve_damage_notation,
+    _roll_dice,
     _save_spec,
     _spellcasting_ability,
     get_spellcasting_stats,
 )
 
-EffectType = Literal["spell_attack", "saving_throw", "buff"]
+EffectType = Literal["spell_attack", "saving_throw", "buff", "healing"]
 SpellAttackRange = Literal["melee", "ranged"]
 
 
@@ -53,7 +54,7 @@ def load_combat_spell(
     effects = _get_effects(spell_def)
     effect = _primary_effect(effects)
     effect_type = str(effect.get("type", ""))
-    if effect_type not in ("spell_attack", "saving_throw", "buff"):
+    if effect_type not in ("spell_attack", "saving_throw", "buff", "healing"):
         raise SpellCastError(
             f"Sort {spell_id!r} : effet {effect_type!r} non pris en charge en combat (C3b)."
         )
@@ -190,3 +191,30 @@ def spell_combat_action_kind(
     if "bonus" in text or "action bonus" in text:
         return "bonus_action"
     return "action"
+
+
+def resolve_spell_healing_amount(
+    spell: CombatSpellEffect,
+    character: Character,
+    engine: RuleEngine,
+    *,
+    rng=None,
+) -> tuple[int, list[int], str]:
+    """Montant de soins d'un sort de type ``healing`` (sans application aux PV)."""
+    if spell.effect_type != "healing":
+        raise SpellCastError("Ce sort ne soigne pas directement.")
+    heal_notation = str(spell.effect.get("healing", "1d8"))
+    add_mod = bool(spell.effect.get("add_ability_mod", True))
+    heal_total, heal_rolls = _roll_dice(heal_notation, rng=rng)
+    display_notation = heal_notation
+    ability_mod, _attack_bonus, _save_dc = get_spellcasting_stats(character, engine)
+    if add_mod:
+        heal_total += ability_mod
+    if character.class_id == "cleric" and spell.spell_level >= 1:
+        from jdr_engine.domain.character.choices_schema import get_specialization_id
+        from jdr_engine.rules.class_features.cleric import disciple_of_life_bonus
+
+        if get_specialization_id(character.choices) == "life":
+            heal_total += disciple_of_life_bonus(spell.spell_level)
+    notation = display_notation + (f"+mod" if add_mod else "")
+    return heal_total, heal_rolls, notation

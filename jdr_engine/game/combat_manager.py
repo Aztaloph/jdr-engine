@@ -93,6 +93,7 @@ from jdr_engine.rules.combat.spell_resolution import (
     load_combat_spell,
     require_spell_attack_type,
     resolve_spell_damage_notation,
+    resolve_spell_healing_amount,
     save_ability_for_spell,
     spell_combat_action_kind,
 )
@@ -204,6 +205,19 @@ class SpellMultiAttackOutcome:
     spell: CombatSpellEffect
     attacks: tuple[AttackRollResolution, ...]
     damage: tuple[DamageResolution, ...]
+
+
+@dataclass(frozen=True)
+class SpellHealOutcome:
+    """Sort de soins — restauration des PV de la cible."""
+
+    spell: CombatSpellEffect
+    healing_total: int
+    healing_applied: int
+    healing_rolls: tuple[int, ...]
+    healing_capped: bool
+    hp_before: int
+    hp_after: int
 
 
 class CombatManager:
@@ -982,6 +996,60 @@ class CombatManager:
             damage=tuple(damages),
         )
 
+    def cast_spell_heal(
+        self,
+        combat_id: int,
+        caster_id: str,
+        target_id: str,
+        spell_id: str,
+        *,
+        rng: RandInt | None = None,
+        locale: str = "fr",
+    ) -> tuple[CombatState, SpellHealOutcome]:
+        """Sort de soins — restaure les PV de la cible touchée."""
+        state = self._require_state(combat_id)
+        if state.status != "active":
+            raise CombatStatusError("Les sorts ne sont lançables qu'en combat actif.")
+
+        caster = self._require_combatant(state, caster_id)
+        target = self._require_combatant(state, target_id)
+        caster_char = self._require_character(caster.character_id)
+
+        spell = load_combat_spell(self._engine, spell_id, locale=locale)
+        if spell.effect_type != "healing":
+            raise SpellCastError(f"{spell_id!r} n'est pas un sort de soins.")
+
+        action_kind = spell_combat_action_kind(spell, locale=locale)
+        self._consume_budget(combat_id, caster_id, action_kind)
+
+        updated_char = consume_spell_slot(caster_char, spell.spell_level)
+        self._characters.save(updated_char)
+
+        state = self._require_state(combat_id)
+        self._publish_spell_cast(state, caster_id, spell, (target_id,))
+
+        heal_total, heal_rolls, _notation = resolve_spell_healing_amount(
+            spell, updated_char, self._engine, rng=rng
+        )
+        hp_before = target.hp_current
+        hp_after = min(target.hp_max, hp_before + heal_total)
+        healing_applied = hp_after - hp_before
+        capped = healing_applied < heal_total
+
+        state.combatants[target_id] = target.with_hp(hp_after)
+        self._persist(state)
+        self._sync_character_from_combatant(state.combatants[target_id])
+
+        return self._require_state(combat_id), SpellHealOutcome(
+            spell=spell,
+            healing_total=heal_total,
+            healing_applied=healing_applied,
+            healing_rolls=tuple(heal_rolls),
+            healing_capped=capped,
+            hp_before=hp_before,
+            hp_after=hp_after,
+        )
+
     def heal_combatant(
         self,
         combat_id: int,
@@ -1352,6 +1420,21 @@ class CombatManager:
                     f"{len(target_ids)} reçue(s)."
                 )
             state, _outcome = self.cast_spell_save(
+                combat_id,
+                caster_id,
+                target_ids[0],
+                spell_id,
+                locale=locale,
+                rng=rng,
+            )
+            return state
+        if spell.effect_type == "healing":
+            if len(target_ids) != 1:
+                raise SpellCastError(
+                    f"Sort de soins : exactement 1 cible attendue, "
+                    f"{len(target_ids)} reçue(s)."
+                )
+            state, _outcome = self.cast_spell_heal(
                 combat_id,
                 caster_id,
                 target_ids[0],

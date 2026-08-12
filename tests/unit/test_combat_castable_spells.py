@@ -248,10 +248,8 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
     def test_cleric_bless_on_own_turn(self) -> None:
         state, _, cleric = self._state(turn_index=1)
         char = _cleric_character()
-        self.assertEqual(
-            list_combat_castable_spell_ids(state, cleric, char, self.engine),
-            ["bless", "sacred_flame"],
-        )
+        castable = list_combat_castable_spell_ids(state, cleric, char, self.engine)
+        self.assertEqual(castable, ["bless", "sacred_flame", "cure_wounds"])
         self.assertEqual(
             list_combat_castable_bonus_spell_ids(state, cleric, char, self.engine),
             [],

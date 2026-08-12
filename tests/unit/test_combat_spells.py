@@ -373,6 +373,31 @@ class TestCombatSpells(unittest.TestCase):
         self.assertTrue(budget.has_action)
         self.assertFalse(budget.has_bonus_action)
 
+    def test_cure_wounds_heals_target_via_cast_spell(self) -> None:
+        combat_id, ids = self._active_two(self.cleric.id, self.wizard.id)
+        caster_id = ids[self.cleric.id]
+        target_id = ids[self.wizard.id]
+        state = self.manager.load_combat(combat_id)
+        wizard_hp = state.combatants[target_id].hp_current
+        self.manager.apply_damage(
+            combat_id, target_id, damage_amount=10, source_id=caster_id
+        )
+        hp_before = self.manager.load_combat(combat_id).combatants[target_id].hp_current
+        self.assertEqual(hp_before, wizard_hp - 10)
+
+        state = self.manager.cast_spell(
+            combat_id,
+            caster_id,
+            "cure_wounds",
+            [target_id],
+            rng=RandSequence([6]),
+        )
+        healed = state.combatants[target_id].hp_current
+        # 1d8(6) + mod SAG +3 = 9
+        self.assertEqual(healed, hp_before + 9)
+        spell_events = [e for e in self.events if isinstance(e, SpellCast)]
+        self.assertEqual(len(spell_events), 1)
+
     def test_heal_combatant_revives_inactive(self) -> None:
         combat_id, ids = self._active_two(self.wizard.id, self.target.id)
         target_id = ids[self.target.id]

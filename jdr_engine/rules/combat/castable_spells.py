@@ -117,7 +117,7 @@ def _list_resolved_combat_spell_ids(
             spell = load_combat_spell(engine, spell_id, locale=locale)
         except SpellCastError:
             continue
-        if spell.effect_type not in ("spell_attack", "saving_throw"):
+        if spell.effect_type not in ("spell_attack", "saving_throw", "healing"):
             continue
         if spell_combat_action_kind(spell, locale=locale) != action_kind:
             continue

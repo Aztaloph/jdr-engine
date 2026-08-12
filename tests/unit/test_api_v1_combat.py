@@ -1357,6 +1357,57 @@ class TestApiV1CombatCast(unittest.TestCase):
         self.assertFalse(combatant["action_budget"]["has_bonus_action"])
         self.assertTrue(combatant["action_budget"]["has_action"])
 
+    def test_post_cast_cure_wounds_heals_target(self) -> None:
+        from jdr_engine.core.events.bus import EventBus
+        from jdr_engine.game.combat_manager import CombatManager
+        from jdr_engine.persistence.combat_repository import SqliteCombatRepository
+
+        state = self._create_and_activate(channel_id="cast-cure-wounds")
+        combat_id = int(state["combat_id"])
+        cleric_cid = self._combatant_for_character(state, self.cleric.id)
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+
+        manager = CombatManager(
+            EventBus(),
+            SqliteCombatRepository(self.db_path),
+            self.repo,
+            self.engine,
+        )
+        damaged, _resolution = manager.apply_damage(
+            combat_id,
+            wizard_cid,
+            damage_amount=8,
+            source_id=cleric_cid,
+        )
+        hp_before = damaged.combatants[wizard_cid].hp_current
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.cleric.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        viewer = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.cleric.id},
+        )
+        self.assertIn("cure_wounds", viewer.json()["viewer"]["castable_spells"])
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": cleric_cid,
+                "spell_id": "cure_wounds",
+                "target_ids": [wizard_cid],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        target = response.json()["combatants"][wizard_cid]
+        self.assertGreater(target["hp_current"], hp_before)
+        caster = response.json()["combatants"][cleric_cid]
+        self.assertFalse(caster["action_budget"]["has_action"])
+
     def test_post_heal_revives_combatant(self) -> None:
         from jdr_engine.core.events.bus import EventBus
         from jdr_engine.game.combat_manager import CombatManager

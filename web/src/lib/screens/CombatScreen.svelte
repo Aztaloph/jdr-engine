@@ -965,8 +965,8 @@
                   {#each viewerPreparedLeveled as spellId, i (spellId)}
                     {#if i > 0} · {/if}<code>{spellId}</code>
                   {/each}.
-                  Seuls les sorts combat (attaque, sauvegarde, overlay) ont un bouton —
-                  ex. <code>detect_magic</code> ou <code>cure_wounds</code> n’apparaissent pas ici.
+                  Seuls les sorts combat (attaque, sauvegarde, soins, overlay) ont un bouton —
+                  ex. <code>detect_magic</code> n’apparaît pas ici.
                 </p>
               {:else if viewer.trim() && viewerSpellcasting}
                 <p class="hint spell-help">
