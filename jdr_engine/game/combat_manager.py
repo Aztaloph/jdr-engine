@@ -108,6 +108,18 @@ from jdr_engine.rules.spellcasting.concentration import (
     set_concentration,
 )
 
+
+def _is_multi_attack_spell(spell_def: dict, effect: dict) -> bool:
+    """Sort avec plusieurs jets d'attaque distincts (ex. rayon ardent)."""
+    if _is_auto_hit_spell(spell_def, effect):
+        return False
+    return int(effect.get("attacks", effect.get("instances", 1))) > 1
+
+
+def _spell_attack_instances(effect: dict) -> int:
+    return max(1, int(effect.get("attacks", effect.get("instances", 1))))
+
+
 if TYPE_CHECKING:
     pass
 
@@ -182,6 +194,15 @@ class SpellAutoHitOutcome:
     damage_total: int
     damage_notation: str
     damage: DamageResolution | None = None
+
+
+@dataclass(frozen=True)
+class SpellMultiAttackOutcome:
+    """Attaque de sort multi-projectiles (ex. rayon ardent)."""
+
+    spell: CombatSpellEffect
+    attacks: tuple[AttackRollResolution, ...]
+    damage: tuple[DamageResolution, ...]
 
 
 class CombatManager:
@@ -523,6 +544,7 @@ class CombatManager:
         request: D20RollRequest,
         *,
         rng: RandInt | None = None,
+        consume_action: bool = True,
     ) -> AttackRollResolution:
         """
         Résout un jet d'attaque vs la CA cible — sans modifier les PV.
@@ -538,7 +560,8 @@ class CombatManager:
         if request.roll_type != "attack":
             raise ValueError("roll_type doit être 'attack' pour un jet d'attaque.")
 
-        self._consume_budget(combat_id, attacker_id, "action")
+        if consume_action:
+            self._consume_budget(combat_id, attacker_id, "action")
 
         state = self._require_state(combat_id)
         attacker = self._require_combatant(state, attacker_id)
@@ -874,6 +897,80 @@ class CombatManager:
             damage_total=damage_total,
             damage_notation=result.damage_notation or "",
             damage=damage_resolution,
+        )
+
+    def cast_spell_multi_attack(
+        self,
+        combat_id: int,
+        caster_id: str,
+        target_id: str,
+        spell_id: str,
+        *,
+        base_mode: D20Mode = "normal",
+        rng: RandInt | None = None,
+        locale: str = "fr",
+    ) -> tuple[CombatState, SpellMultiAttackOutcome]:
+        """Attaque de sort à plusieurs projectiles — un jet vs CA par rayon."""
+        state = self._require_state(combat_id)
+        if state.status != "active":
+            raise CombatStatusError("Les sorts ne sont lançables qu'en combat actif.")
+
+        caster = self._require_combatant(state, caster_id)
+        self._require_combatant(state, target_id)
+        caster_char = self._require_character(caster.character_id)
+
+        spell = load_combat_spell(self._engine, spell_id, locale=locale)
+        if spell.effect_type != "spell_attack":
+            raise SpellCastError(f"{spell_id!r} n'est pas une attaque de sort.")
+        if not _is_multi_attack_spell(spell.spell_def, spell.effect):
+            raise SpellCastError(f"{spell_id!r} n'est pas un sort multi-attaque.")
+
+        instances = _spell_attack_instances(spell.effect)
+        self._consume_budget(combat_id, caster_id, "action")
+
+        updated_char = consume_spell_slot(caster_char, spell.spell_level)
+        self._characters.save(updated_char)
+
+        state = self._require_state(combat_id)
+        self._publish_spell_cast(state, caster_id, spell, (target_id,))
+
+        request = build_spell_attack_request(
+            caster_char,
+            self._engine,
+            base_mode=base_mode,
+            attack_type=require_spell_attack_type(spell),
+        )
+        notation = resolve_spell_damage_notation(spell, caster_char)
+
+        attacks: list[AttackRollResolution] = []
+        damages: list[DamageResolution] = []
+        for _index in range(instances):
+            attack = self.resolve_attack_roll(
+                combat_id,
+                caster_id,
+                target_id,
+                request,
+                rng=rng,
+                consume_action=False,
+            )
+            attacks.append(attack)
+            if attack.outcome.hit:
+                state, damage_resolution = self.apply_damage(
+                    combat_id,
+                    target_id,
+                    notation,
+                    critical=attack.outcome.critical,
+                    source_id=caster_id,
+                    rng=rng,
+                    spell_damage=True,
+                )
+                damages.append(damage_resolution)
+
+        state = self._require_state(combat_id)
+        return state, SpellMultiAttackOutcome(
+            spell=spell,
+            attacks=tuple(attacks),
+            damage=tuple(damages),
         )
 
     def heal_combatant(
@@ -1212,6 +1309,16 @@ class CombatManager:
                 )
             if _is_auto_hit_spell(spell.spell_def, spell.effect):
                 state, _outcome = self.cast_spell_auto_hit(
+                    combat_id,
+                    caster_id,
+                    target_ids[0],
+                    spell_id,
+                    locale=locale,
+                    rng=rng,
+                )
+                return state
+            if _is_multi_attack_spell(spell.spell_def, spell.effect):
+                state, _outcome = self.cast_spell_multi_attack(
                     combat_id,
                     caster_id,
                     target_ids[0],

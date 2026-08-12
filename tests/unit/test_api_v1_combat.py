@@ -989,7 +989,7 @@ class TestApiV1CombatCast(unittest.TestCase):
             choices={
                 "spellcasting": {
                     "cantrips_known": ["fire_bolt"],
-                    "spells_prepared": ["magic_missile", "shield"],
+                    "spells_prepared": ["magic_missile", "shield", "scorching_ray"],
                     "slots_used": {},
                 }
             },
@@ -1246,6 +1246,32 @@ class TestApiV1CombatCast(unittest.TestCase):
             json={
                 "caster_id": wizard_cid,
                 "spell_id": "magic_missile",
+                "target_ids": [target_cid],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        target = response.json()["combatants"][target_cid]
+        self.assertLess(target["hp_current"], hp_before)
+
+    def test_post_cast_scorching_ray_multi_attack(self) -> None:
+        state = self._create_and_activate(channel_id="cast-scorching-ray")
+        combat_id = state["combat_id"]
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+        target_cid = self._combatant_for_character(state, self.cleric.id)
+        hp_before = state["combatants"][target_cid]["hp_current"]
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.wizard.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": wizard_cid,
+                "spell_id": "scorching_ray",
                 "target_ids": [target_cid],
             },
         )

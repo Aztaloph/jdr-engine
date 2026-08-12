@@ -74,7 +74,7 @@ def _wizard(*, name: str = "Mage", hp: int = 20) -> Character:
         choices={
             "spellcasting": {
                 "cantrips_known": ["fire_bolt"],
-                "spells_prepared": ["burning_hands", "magic_missile"],
+                "spells_prepared": ["burning_hands", "magic_missile", "scorching_ray"],
                 "slots_used": {},
             }
         },
@@ -270,6 +270,42 @@ class TestCombatSpells(unittest.TestCase):
         target = state.combatants[target_id]
         self.assertEqual(target.hp_current, hp_before - 12)
         self.assertIsInstance(self.events[0], SpellCast)
+
+    def test_scorching_ray_multi_attack_via_cast_dispatch(self) -> None:
+        combat_id, ids = self._active_two(self.wizard.id, self.target.id)
+        caster_id = ids[self.wizard.id]
+        target_id = ids[self.target.id]
+        hp_before = self.manager.load_combat(combat_id).combatants[target_id].hp_current
+
+        state, outcome = self.manager.cast_spell_multi_attack(
+            combat_id,
+            caster_id,
+            target_id,
+            "scorching_ray",
+            rng=RandSequence([18, 3, 4, 17, 5, 6, 16, 2, 3]),
+        )
+        self.assertEqual(len(outcome.attacks), 3)
+        self.assertEqual(len(outcome.damage), 3)
+        total = sum(d.application.damage_dealt for d in outcome.damage)
+        self.assertEqual(
+            state.combatants[target_id].hp_current,
+            hp_before - total,
+        )
+
+    def test_scorching_ray_via_cast_spell(self) -> None:
+        combat_id, ids = self._active_two(self.wizard.id, self.target.id)
+        caster_id = ids[self.wizard.id]
+        target_id = ids[self.target.id]
+        hp_before = self.manager.load_combat(combat_id).combatants[target_id].hp_current
+
+        state = self.manager.cast_spell(
+            combat_id,
+            caster_id,
+            "scorching_ray",
+            [target_id],
+            rng=RandSequence([18, 3, 4, 17, 5, 6, 16, 2, 3]),
+        )
+        self.assertLess(state.combatants[target_id].hp_current, hp_before)
 
     def test_heal_combatant_revives_inactive(self) -> None:
         combat_id, ids = self._active_two(self.wizard.id, self.target.id)
