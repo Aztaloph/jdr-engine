@@ -1,0 +1,18 @@
+#!/bin/sh
+# Met à jour les métriques mesurables de ROADMAP.md avant finalisation du commit.
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+RUN_TESTS=0
+if git diff --cached --name-only | grep -qE '^(tests/|jdr_engine/|interfaces/|bot/|compendium/)'; then
+  RUN_TESTS=1
+fi
+
+if [ "$RUN_TESTS" -eq 1 ]; then
+  python tools/update_roadmap_metrics.py --run-tests
+else
+  python tools/update_roadmap_metrics.py --skip-tests
+fi
+
+git add ROADMAP.md

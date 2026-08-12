@@ -32,14 +32,25 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 
 ---
 
-## État du projet (août 2026)
+## État du projet
+
+<!-- ROADMAP-AUTO:START -->
+| Indicateur | Valeur |
+|---|---|
+| Tests unitaires | **945** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
+| Sorts curated (YAML) | **42** (`compendium/dnd5e/entries/spells/*/definition.yaml`) |
+| Commit HEAD | `d6f37c1` |
+| Dernière sync auto | 2026-08-12 |
+<!-- ROADMAP-AUTO:END -->
+
+> Métriques ci-dessus : mises à jour automatiquement par `tools/update_roadmap_metrics.py` (hook pre-commit). Les cases à cocher et jalons ci-dessous restent pilotés manuellement.
 
 | Indicateur | Valeur |
 |---|---|
-| Tests unitaires | **835** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
 | Classes SRD 2014 | 12/12 jouables (création + montée de niveau 1–20 full casters, ASI 5 paliers) |
-| Catalogue sorts curated | **42** sorts (schéma v2.0 ; grimoire mage **18** = quota niv. 7) |
-| Derniers commits | ADR-006 A+B+C (`c09a89b`→`94156f4`) ; ROADMAP/README août 2026 ; ADR-005 ; B4 bless/hunters_mark |
+| Grimoire mage (quota niv. 7) | **18** sorts |
+| Client web | `web/` — lobby, combat, landing livrés ; refonte visuelle HUD en cours (lot 4d) |
+| Derniers commits (web) | `d6f37c1` brief Fable · `8d56735` landing · `9f54722`/`038efd7` HUD combat · `fc66507` tokens |
 
 ---
 
@@ -86,8 +97,8 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
   - [x] **C7 — Service & persistance** : `CombatService`, journal événementiel, auto-save handler. *(dette : `_persist()` handler-only — post-C7)*
   - [x] **ADR-005 — Fin de rencontre** : sync PV/concentration à `close_combat`, auto-close `advance_turn`, encounter-scoped conditions.
   - [x] **ADR-006 — Effets actifs unifiés** (doc `c48d9b6` ; impl. A+B+C `c09a89b`→`94156f4`, poussé sur `main`) : `ActiveEffect`, horloge `round_number`, registre `rules/effects/`, migration `bless`/`hunters_mark`, blob `COMBAT_STATE_VERSION` **2**, adaptateurs `collect_*`, persistance consolidée.
-- [ ] **ÉTAPE 6 : API (REST + WebSocket)** — 🚧 **en cours** (contrat v1, cycle de vie combat, attaque fusionnée — `docs/api/CONTRAT.md`). Extension WebSocket map = lot 4 front ([ADR-007](docs/adr/ADR-007-stack-client-web.md)). `interfaces/api/` expose `CharacterService`, `CombatService` ; push EventBus vers clients = jalon map.
-- [ ] **ÉTAPE 7 : Client Web (interface de jeu principale)** — 🔜 ([ADR-007](docs/adr/ADR-007-stack-client-web.md)). Découpage opérationnel : section **Piste client Web** ci-dessous (parallèle au moteur, pas un lot moteur). Spécification UX : VISION.md §4.
+- [ ] **ÉTAPE 6 : API (REST + WebSocket)** — 🚧 **REST combat + personnage livrés** (`docs/api/CONTRAT.md`, `interfaces/api/`) : cycle de vie combat, attaque fusionnée, cast overlay, `advance-turn`, clôture, viewer. **Reste ouvert** : WebSocket map (lot 6 front), auth, push EventBus temps réel.
+- [ ] **ÉTAPE 7 : Client Web (interface de jeu principale)** — 🚧 **en cours** ([ADR-007](docs/adr/ADR-007-stack-client-web.md)). Découpage : section **Piste client Web** ci-dessous. Spécification UX : VISION.md §4.
 - [ ] **ÉTAPE 8 : Discord minimal** — 🔜 nouveau (ordre 5). Réduction au social : chat, lancement de partie, `/personnage` → Web, notifications (via EventBus). Voir VISION.md §3.
 - [ ] **ÉTAPE 9 : Contenu & carte** — 🔭 long terme (ordre 6). Campagnes, packs d'assets, carte/VTT, base marketplace. Voir VISION.md §4.5 et §8.
 - [ ] **ÉTAPE 5 : Portage / fix version 2024** (armes, dégâts, actions bonus, sous-classes niv.3…) — ⏸️ **TOUT À LA FIN** (ordre 7), après le combat **et** le Web
@@ -96,13 +107,21 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 
 ## Piste client Web (parallèle au moteur)
 
-> Application de **D7** ([`VISION.md`](VISION.md)) et stack [ADR-007](docs/adr/ADR-007-stack-client-web.md) : le client web progresse **en parallèle** du moteur comme surface de vérification et interface cible. Cette piste **consomme** l'API (`interfaces/api/`, `docs/api/CONTRAT.md`) ; elle n'est **pas** un lot du moteur (pas de règles D&D dans le front, pas de dépendance moteur → client). Le lot 0 (`advance_turn`) reste un prérequis API aux écrans de combat.
+> Application de **D7** ([`VISION.md`](VISION.md)) et stack [ADR-007](docs/adr/ADR-007-stack-client-web.md) : le client web progresse **en parallèle** du moteur comme surface de vérification et interface cible. Cette piste **consomme** l'API (`interfaces/api/`, `docs/api/CONTRAT.md`) ; elle n'est **pas** un lot du moteur (pas de règles D&D dans le front, pas de dépendance moteur → client).
 
-- [ ] **Lot 0 — `advance_turn` (API)** — Avancement de tour en combat. Prérequis aux écrans de combat. **Pas de front.**
-- [ ] **Lot 1 — Squelette front** — Vite + Svelte, arborescence, CORS côté FastAPI, affichage d'une fiche de personnage via `GET /v1/characters/{id}/sheet`. Objectif : valider la chaîne navigateur → API → SQLite.
-- [ ] **Lot 2 — Lobby** — Création de combat, ajout de combattants, activation.
-- [ ] **Lot 3 — Écran de combat** — Ordre de tour, PV, attaque, avancement de tour, log.
-- [ ] **Lot 4 — Map** — WebSocket, état poussé, exploitation effective du paramètre `viewer`. Fera remonter la question de l'authentification.
+- [x] **Lot 0 — `advance_turn` (API)** — `POST /v1/combats/{id}/advance-turn` (`interfaces/api/combat_routes.py`). Prérequis aux écrans de combat.
+- [x] **Lot 1 — Squelette front** — Vite + Svelte (`web/`), CORS FastAPI, fiche via `GET /v1/characters/{id}/sheet` (`CharacterScreen.svelte`).
+- [x] **Lot 2 — Lobby** — Création de combat, sélection de personnages, activation, combats ouverts (`LobbyScreen.svelte`).
+- [x] **Lot 3 — Écran de combat (fonctionnel)** — Initiative, tour courant (`current_combatant_id`), PV/CA viewer, budget d'action, attaque, sorts overlay (`viewer.castable_spells[]`), fin de tour, journal client, clôture (`CombatScreen.svelte`).
+- [ ] **Lot 4 — Refonte visuelle HUD combat** — 🚧 **en cours** ([`docs/web/BRIEF_FABLE_AFFICHAGE.md`](docs/web/BRIEF_FABLE_AFFICHAGE.md)) ; à données constantes, placeholders explicites pour carte/compétences/caractéristiques.
+  - [x] **4a — Design tokens** — palette sombre / ambre, typo, espacements (`web/src/lib/styles/tokens.css`).
+  - [x] **4b — Layout 3 colonnes** — composants combat, placeholders carte et barre de dés.
+  - [x] **4c — Finitions phase 2** — barres PV, responsive, nettoyage styles.
+  - [ ] **4d — Finalisation visuelle (Lot C)** — polish carte décorative, densité panneaux, header HUD, icônes — **modifications locales non commitées** (août 2026).
+- [x] **Lot 5 — Landing page publique** — direction artistique produit (`LandingScreen.svelte`, route `/`). Horizon marketing, hors combat.
+- [ ] **Lot 6 — Map tactique (backend + temps réel)** — WebSocket, état poussé, positions réelles de jetons, grille interactive (moteur C4 branché). Remplace les jetons **décoratifs** du lot 4. Fera remonter l'authentification.
+
+**Prochain jalon front** : terminer **lot 4d** (validation visuelle HUD), puis **lot 6** (carte réelle — backend WebSocket).
 
 ---
 
@@ -144,9 +163,9 @@ Tous les jalons P2a–P2h sont livrés. Grimoire mage : consultable via **`/pers
 Chaîne validée : ASI **5 paliers** (4/8/12/16/19), cap **niv. 20** full casters, cantrip scaling 2d10/3d10/4d10, UI **`AsiDistributionView`**.
 
 **Prochain jalon opérationnel** (dans l'ÉTAPE 3) : **Axe B3** (élargissement catalogue) ou **Axe A3** (demi-casters).
-**Prochain chantier combat** : extension **B4** (registre — `hex`, durées rounds) ou dettes ADR-004 (`prone`, movement C4).
-**ÉTAPE 6 (API REST)** : `interfaces/api/` — contrat v1 combat + personnage livré (banc de test et parcours §5.1) ; WebSocket map = lot 4 front ([ADR-007](docs/adr/ADR-007-stack-client-web.md)).
-**Prochain jalon front** : lot 0 API `advance_turn`, puis lot 1 squelette Svelte ([ADR-007](docs/adr/ADR-007-stack-client-web.md)).
+**Prochain chantier combat (moteur)** : extension **B4** (registre effets) ou dettes ADR-004 (`prone`, movement C4).
+**ÉTAPE 6 (API REST)** : parcours combat v1 livré côté REST ; WebSocket = lot 6 front.
+**Prochain jalon front** : **lot 4d** (finalisation visuelle HUD), puis **lot 6** (map tactique réelle).
 
 ---
 

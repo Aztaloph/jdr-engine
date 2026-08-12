@@ -47,10 +47,10 @@ Une contradiction se **signale dans ton rapport**, elle ne se corrige pas en sil
 
 ## 4. Commandes
 
-**Validées** (exécutées le 2026-07-27, dépôt au commit `bf24622`) :
+**Validées** (référence historique commit `bf24622` : 645 tests ; **référence courante** : section auto-sync de `ROADMAP.md`) :
 
 ```bash
-# Tests — référence : 645 tests, OK
+# Tests — voir ROADMAP.md (section auto-sync) pour le nombre courant
 python -m unittest discover -s tests -p "test_*.py" -q
 
 # Validation du Compendium — référence : [OK] Compendium valide
@@ -59,7 +59,7 @@ python tools/validate_compendium.py dnd5e
 
 > `python` désigne **l'interpréteur du venv** : `venv\Scripts\python.exe` sous Windows, `venv/bin/python` sous Unix. Active le venv au préalable, ou préfixe la commande par ce chemin.
 
-La CI (`.github/workflows/ci.yml`) exécute `python -m unittest discover -s tests -v` puis `python tools/validate_compendium.py dnd5e`. Variante également vérifiée : 645 tests, OK.
+La CI (`.github/workflows/ci.yml`) exécute `python -m unittest discover -s tests -v` puis `python tools/validate_compendium.py dnd5e`.
 
 **Indisponibles — ne pas invoquer, ne pas installer :**
 
@@ -76,8 +76,9 @@ Framework de tests : **`unittest`**, jamais `pytest`. Un fichier de test par lot
 
 ## 5. Modification de la documentation
 
-- **Interdit sans accord explicite du mainteneur** : `VISION.md`, `ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE_TARGET.md`, `docs/adr/**`.
-- Ces fichiers sont pilotés par le mainteneur et l'agent d'architecture, pas par les agents d'implémentation.
+- **Interdit sans accord explicite du mainteneur** : `VISION.md`, `ROADMAP.md` (cases à cocher et jalons), `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE_TARGET.md`, `docs/adr/**`.
+- **Exception** : la section `<!-- ROADMAP-AUTO:START -->` … `<!-- ROADMAP-AUTO:END -->` de `ROADMAP.md` est mise à jour automatiquement par `tools/update_roadmap_metrics.py` (hook Git pre-commit).
+- Ces fichiers sont pilotés par le mainteneur et l'agent d'architecture, pas par les agents d'implémentation — sauf métriques auto-sync ci-dessus.
 - Toute décision structurelle **doit produire un ADR avant implémentation** (`docs/adr/README.md`).
 - Ne jamais dupliquer VISION dans ROADMAP ou inversement : on **référence** (`VISION.md` §5), on ne recopie pas.
 - Un chiffre écrit dans un document (nombre de tests, de sorts) doit être **mesuré**, jamais estimé.
@@ -102,7 +103,7 @@ Ne déclare **jamais** un lot terminé sans coller dans ton rapport :
 
 1. La sortie brute de la commande de tests — les lignes `Ran N tests` **et** `OK`.
 2. La sortie de `tools/validate_compendium.py dnd5e` si tu as touché au `compendium/`.
-3. Le **delta du nombre de tests** par rapport à la référence (645 au commit `bf24622`). Un lot fonctionnel qui n'augmente pas ce nombre n'a pas livré de tests.
+3. Le **delta du nombre de tests** par rapport à la référence courante dans `ROADMAP.md` (section auto-sync). Baseline historique : 645 au commit `bf24622`. Un lot fonctionnel moteur qui n'augmente pas ce nombre n'a pas livré de tests.
 
 Règles de véracité :
 
@@ -120,3 +121,60 @@ Règles de véracité :
 - **Ne pas commiter ni pousser sans demande explicite** du mainteneur.
 - **Périmètre strict** : ne modifie que les fichiers nécessaires au lot demandé. Si tu découvres un problème hors périmètre, **signale-le, ne le corrige pas**.
 - Si le lot demandé s'avère plus large que prévu, **arrête-toi et remonte** au lieu d'élargir seul.
+
+## 9. Protocole de travail autonome
+
+Objectif : avancer lot par lot avec un minimum d'interruptions ; l'utilisateur tranche uniquement les décisions qu'il est seul à pouvoir prendre.
+
+### Source de vérité et lecture
+
+| Priorité | Document | Usage |
+|---|---|---|
+| 1 | **Code réel** | État effectif |
+| 2 | `VISION.md` | Stratégie, décisions D1–D8 |
+| 3 | **`ROADMAP.md`** | Lots, ordre, statuts — **source opérationnelle** |
+| 4 | Brief de lot (ex. `docs/web/BRIEF_*.md`) | Périmètre du lot courant uniquement |
+| 5 | ADR / architecture | Décisions techniques |
+
+**Au démarrage d'un lot** (pas à chaque micro-action) : relire `AGENTS.md`, la section pertinente de `ROADMAP.md`, le brief du lot s'il existe, puis le code concerné.
+
+**En cas de conflit** : le code prime sur la doc ; `ROADMAP.md` prime sur un brief, sauf instruction explicite du mainteneur pour ce lot. Si `ROADMAP.md` semble en retard : vérifier dans le code, continuer le lot demandé, **signaler l'écart** (ne pas corriger les cases à cocher sans accord).
+
+### Règle de tri (autonomie vs arrêt)
+
+Avant une action : une erreur se voit-elle **immédiatement à l'écran** (front, CSS, layout, textes, placeholders, libellés) ?
+
+- **Oui** → décider seul, implémenter, continuer.
+- **Non** (SRD, calculs, contrats API, persistance, migrations, schémas) → appliquer les critères d'arrêt ci-dessous.
+
+### Critères d'arrêt (un point à la fois)
+
+Tu t'arrêtes **uniquement** si :
+
+1. Deux implémentations possibles ont des conséquences **durables divergentes** et la roadmap ne tranche pas.
+2. Une modification casse un **contrat d'API** exposé ou impose une **migration de données**.
+3. Une règle **SRD** est ambiguë ou absente du compendium, et l'interpréter engage le moteur.
+4. Le lot **contredit** un choix architectural antérieur.
+5. Un test existant échoue pour une **divergence de conception**, pas un simple bug.
+
+Sinon : trancher seul, documenter le choix dans le commit. Ne pas s'arrêter pour validation esthétique ni pour un point perfectible.
+
+### Format d'un point d'arbitrage
+
+```
+Contexte : (3 lignes max)
+Question : (une seule, fermée)
+Options : (2 ou 3, conséquence durable chacune)
+Recommandation : (2 lignes)
+Ce qui est bloqué :
+```
+
+Bloc autonome — transmissible à un modèle externe sans accès au dépôt. **Un arbitrage par message**, jamais regroupé.
+
+### Placeholders
+
+Toute fonctionnalité non implémentée reste **visible** avec un marqueur explicite (« À VENIR », lot concerné). Ne jamais masquer un manque ni simuler une donnée.
+
+### Hooks Git (métriques roadmap)
+
+Après clone ou une fois par machine : `powershell tools/setup_git_hooks.ps1` (active `.githooks/pre-commit`). Chaque commit inclut la sync auto des métriques mesurables de `ROADMAP.md`.
