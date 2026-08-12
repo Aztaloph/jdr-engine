@@ -215,6 +215,7 @@ def _combatant_to_dict(
     *,
     viewer: str | None = None,
     viewer_character_id: str | None = None,
+    ability_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Combattant → dict JSON-sérialisable.
@@ -248,6 +249,10 @@ def _combatant_to_dict(
             payload["concentration_spell_name"] = combatant.concentration_spell_name
         if combatant.action_budget is not None:
             payload["action_budget"] = _action_budget_to_dict(combatant.action_budget)
+        if ability_snapshot is not None:
+            payload["ability_scores"] = dict(ability_snapshot["ability_scores"])
+            payload["ability_modifiers"] = dict(ability_snapshot["ability_modifiers"])
+            payload["ability_labels"] = dict(ability_snapshot["ability_labels"])
 
     return payload
 
@@ -291,6 +296,7 @@ def combat_state_to_dict(
     *,
     viewer: str | None = None,
     viewer_context: dict[str, Any] | None = None,
+    combatant_ability_snapshots: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     État de rencontre → dict JSON-sérialisable (ressource API combat).
@@ -299,6 +305,9 @@ def combat_state_to_dict(
 
     ``viewer_context`` : bloc ``viewer`` pré-calculé (``castable_spells``, etc.).
     Requis côté API lorsque ``viewer`` est renseigné.
+
+    ``combatant_ability_snapshots`` : caractéristiques dérivées par ``combatant_id``
+    (voir ``resolve_combatant_ability_snapshots``).
 
     Exclus : ``schema_version`` (version blob interne), ``guild_id`` /
     ``channel_id`` (projection persistence — hors vocabulaire client).
@@ -337,6 +346,11 @@ def combat_state_to_dict(
                 combatant,
                 viewer=viewer,
                 viewer_character_id=viewer,
+                ability_snapshot=(
+                    combatant_ability_snapshots.get(combatant_id)
+                    if combatant_ability_snapshots
+                    else None
+                ),
             )
             for combatant_id, combatant in state.combatants.items()
         },

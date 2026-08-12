@@ -813,6 +813,31 @@ class TestApiV1CombatRead(unittest.TestCase):
         self.assertIn("hp_current", combatants[alice_cid])
         self.assertNotIn("hp_current", combatants[bob_cid])
 
+    def test_get_combat_includes_abilities_dm_view(self) -> None:
+        combat_id = self._active_combat_id()
+        response = self.client.get(f"/v1/combats/{combat_id}")
+        self.assertEqual(response.status_code, 200)
+        for combatant in response.json()["combatants"].values():
+            self.assertIn("ability_scores", combatant)
+            self.assertIn("ability_modifiers", combatant)
+            self.assertIn("ability_labels", combatant)
+            self.assertGreaterEqual(combatant["ability_scores"]["str"], 16)
+            self.assertGreaterEqual(combatant["ability_modifiers"]["str"], 3)
+
+    def test_get_combat_viewer_own_abilities_only(self) -> None:
+        combat_id = self._active_combat_id()
+        response = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.alice.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        combatants = response.json()["combatants"]
+        alice_cid = self._combatant_ids_by_character(combatants, self.alice.id)
+        bob_cid = self._combatant_ids_by_character(combatants, self.bob.id)
+        self.assertIn("ability_scores", combatants[alice_cid])
+        self.assertEqual(combatants[alice_cid]["ability_modifiers"]["str"], 3)
+        self.assertNotIn("ability_scores", combatants[bob_cid])
+
     def test_get_and_advance_turn_viewer_parity(self) -> None:
         combat_id = self._active_combat_id()
         get_view = self.client.get(

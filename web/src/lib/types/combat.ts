@@ -7,6 +7,20 @@ export type CombatStatus = "preparing" | "active" | "ended";
 
 export type ExpiryMode = "concentration" | "rounds" | string;
 
+/**
+ * Identifiants de caractéristiques — alignés sur le compendium / fiche personnage.
+ */
+export type AbilityId = "str" | "dex" | "con" | "int" | "wis" | "cha";
+
+export const COMBAT_ABILITY_IDS: readonly AbilityId[] = [
+  "str",
+  "dex",
+  "con",
+  "int",
+  "wis",
+  "cha",
+] as const;
+
 /** Budget d'action tour — présent seulement si le serveur l'expose pour ce combattant. */
 export interface ActionBudget {
   has_action: boolean;
@@ -32,6 +46,10 @@ export interface Combatant {
   concentration_spell_id?: string;
   concentration_spell_name?: string;
   action_budget?: ActionBudget;
+  /** Présents si le viewer peut voir la fiche détaillée (MJ ou propre PJ). */
+  ability_scores?: Partial<Record<AbilityId, number>>;
+  ability_modifiers?: Partial<Record<AbilityId, number>>;
+  ability_labels?: Partial<Record<AbilityId, string>>;
 }
 
 export interface ActiveEffect {

@@ -7,7 +7,14 @@
     postCombatCast,
     postWeaponAttack,
   } from "../api/combat";
-  import type { ActiveEffect, CombatState, LoadError } from "../types/combat";
+  import type {
+    AbilityId,
+    ActiveEffect,
+    Combatant,
+    CombatState,
+    LoadError,
+  } from "../types/combat";
+  import { COMBAT_ABILITY_IDS } from "../types/combat";
   import {
     WEAPON_IDS,
     type WeaponAttackResult,
@@ -176,6 +183,18 @@
     journal = [{ ...entry, id: journalSeq, time }, ...journal];
   }
 
+  function formatModifier(value: number): string {
+    return value >= 0 ? `+${value}` : String(value);
+  }
+
+  function abilityLabel(combatant: Combatant, abilityId: AbilityId): string {
+    return combatant.ability_labels?.[abilityId] ?? abilityId.toUpperCase();
+  }
+
+  function hasAbilityBlock(combatant: Combatant): boolean {
+    return combatant.ability_scores !== undefined;
+  }
+
   async function loadCombat(id: string, viewerParam: string) {
     error = null;
     loading = true;
@@ -326,7 +345,7 @@
     }
   }
 
-  const ABILITY_LABELS = ["FOR", "DEX", "CON", "INT", "SAG", "CHA"] as const;
+
 </script>
 
 <div class="combat-screen">
@@ -526,19 +545,33 @@
                 {/if}
               </p>
             {/if}
+
+            {#if hasAbilityBlock(currentTurnCombatant)}
+              <div class="abilities">
+                {#each COMBAT_ABILITY_IDS as abilityId (abilityId)}
+                  <div class="ability">
+                    <span class="ability-name">
+                      {abilityLabel(currentTurnCombatant, abilityId)}
+                    </span>
+                    <span class="ability-value">
+                      {currentTurnCombatant.ability_scores?.[abilityId] ?? "—"}
+                    </span>
+                    <span class="ability-mod">
+                      {formatModifier(
+                        currentTurnCombatant.ability_modifiers?.[abilityId] ?? 0,
+                      )}
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <p class="hint abilities-hidden">
+                Caractéristiques non exposées pour ce combattant (vue joueur).
+              </p>
+            {/if}
           {:else}
             <p class="hint">Aucun tour actif.</p>
           {/if}
-
-          <div class="abilities">
-            {#each ABILITY_LABELS as ab (ab)}
-              <div class="ability" title="Caractéristiques — à venir">
-                <span class="ability-name">{ab}</span>
-                <span class="ability-value">—</span>
-              </div>
-            {/each}
-          </div>
-          <p class="abilities-note">Caractéristiques — à venir</p>
         </Panel>
 
         <Panel title="Actions rapides" icon="sword">
@@ -1161,19 +1194,19 @@
   .ability-value {
     font-family: var(--font-display);
     font-size: 0.85rem;
-    color: var(--color-text-muted);
-    opacity: 0.6;
+    color: var(--color-text-primary);
   }
 
-  .abilities-note {
-    margin: -0.2rem 0 0;
-    font-size: 0.62rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+  .ability-mod {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
     color: var(--color-text-muted);
-    text-align: right;
-    opacity: 0.7;
+  }
+
+  .abilities-hidden {
+    margin: 0.35rem 0 0;
+    font-size: 0.75rem;
+    font-style: italic;
   }
 
   /* ---- actions rapides ---- */

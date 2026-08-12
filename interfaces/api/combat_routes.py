@@ -16,7 +16,10 @@ from interfaces.api.combat_scope import (
     resolve_create_scope,
 )
 from interfaces.api.errors import ApiError
-from jdr_engine.application.combat_view import resolve_viewer_context
+from jdr_engine.application.combat_view import (
+    resolve_combatant_ability_snapshots,
+    resolve_viewer_context,
+)
 from jdr_engine.application.combat_service import CombatService
 from jdr_engine.application.dto.output_serializers import (
     WeaponAttackResult,
@@ -125,10 +128,18 @@ def register_combat_routes(
                 normalized,
                 character_repository,
             )
+        ability_snapshots = resolve_combatant_ability_snapshots(
+            state,
+            character_repository,
+            engine,
+            viewer=normalized,
+            locale=locale,
+        )
         return combat_state_to_dict(
             state,
             viewer=normalized,
             viewer_context=viewer_context,
+            combatant_ability_snapshots=ability_snapshots,
         )
 
     def _combat_response(combat_id: int, viewer: str | None = None) -> dict:
@@ -164,7 +175,7 @@ def register_combat_routes(
                 "OPEN_COMBAT_EXISTS",
                 str(exc),
             ) from exc
-        return combat_state_to_dict(state)
+        return _serialize_combat_state(state, viewer=None)
 
     @app.get("/v1/combats/open")
     def list_open_combats() -> dict:
@@ -223,7 +234,7 @@ def register_combat_routes(
                 "COMBAT_STATUS_INVALID",
                 str(exc),
             ) from exc
-        return combat_state_to_dict(state)
+        return _serialize_combat_state(state, viewer=None)
 
     @app.post("/v1/combats/{combat_id}/attack")
     def attack(
@@ -497,4 +508,4 @@ def register_combat_routes(
                 "Combat introuvable.",
                 details={"combat_id": combat_id},
             ) from exc
-        return combat_state_to_dict(state)
+        return _serialize_combat_state(state, viewer=None)

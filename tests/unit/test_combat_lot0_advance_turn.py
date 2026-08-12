@@ -303,6 +303,71 @@ class TestCombatStateViewerDto(unittest.TestCase):
         self.assertEqual(bob_view["display_name"], "Bob")
         self.assertEqual(bob_view["initiative_total"], 10)
 
+    def test_combat_state_dto_ability_snapshots_respect_viewer(self) -> None:
+        from jdr_engine.domain.combat.action_budget import fresh_action_budget
+        from jdr_engine.domain.combat.combat_state import COMBAT_STATE_VERSION, CombatState
+        from jdr_engine.domain.combat.combatant import Combatant
+
+        alice = Combatant(
+            combatant_id="aaa11111",
+            display_name="Alice",
+            kind="player_character",
+            character_id="char_alice",
+            hp_current=10,
+            hp_max=12,
+            ac=16,
+            is_active=True,
+            initiative_total=15,
+        ).with_action_budget(fresh_action_budget())
+        bob = Combatant(
+            combatant_id="bbb22222",
+            display_name="Bob",
+            kind="player_character",
+            character_id="char_bob",
+            hp_current=8,
+            hp_max=12,
+            ac=14,
+            is_active=True,
+            initiative_total=10,
+        ).with_action_budget(fresh_action_budget())
+        state = CombatState(
+            schema_version=COMBAT_STATE_VERSION,
+            ruleset_id="dnd5e",
+            round_number=1,
+            turn_index=0,
+            initiative_order=("aaa11111", "bbb22222"),
+            combatants={"aaa11111": alice, "bbb22222": bob},
+            status="active",
+            started_at="2026-08-08T00:00:00+00:00",
+        )
+        labels = {"str": "Force", "dex": "Dextérité", "con": "Constitution",
+                  "int": "Intelligence", "wis": "Sagesse", "cha": "Charisme"}
+        alice_ab = {
+            "ability_scores": {"str": 16, "dex": 14, "con": 12, "int": 10, "wis": 10, "cha": 8},
+            "ability_modifiers": {"str": 3, "dex": 2, "con": 1, "int": 0, "wis": 0, "cha": -1},
+            "ability_labels": labels,
+        }
+        bob_ab = {
+            "ability_scores": {"str": 10, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10},
+            "ability_modifiers": {"str": 0, "dex": 0, "con": 0, "int": 0, "wis": 0, "cha": 0},
+            "ability_labels": labels,
+        }
+        snapshots = {"aaa11111": alice_ab, "bbb22222": bob_ab}
+        dm_view = combat_state_to_dict(
+            state,
+            combatant_ability_snapshots=snapshots,
+        )
+        self.assertEqual(dm_view["combatants"]["aaa11111"]["ability_scores"]["str"], 16)
+        self.assertEqual(dm_view["combatants"]["bbb22222"]["ability_modifiers"]["dex"], 0)
+
+        player_view = combat_state_to_dict(
+            state,
+            viewer="char_alice",
+            combatant_ability_snapshots={"aaa11111": alice_ab},
+        )
+        self.assertIn("ability_scores", player_view["combatants"]["aaa11111"])
+        self.assertNotIn("ability_scores", player_view["combatants"]["bbb22222"])
+
 
 class TestNextActiveTurnIndex(unittest.TestCase):
     def test_no_active_returns_none(self) -> None:
