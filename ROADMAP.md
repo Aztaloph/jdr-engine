@@ -39,7 +39,7 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 |---|---|
 | Tests unitaires | **1002** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
 | Sorts curated (YAML) | **42** (`compendium/dnd5e/entries/spells/*/definition.yaml`) |
-| Commit HEAD | `c4c05a2` |
+| Commit HEAD | `96bb75e` |
 | Dernière sync auto | 2026-08-13 |
 <!-- ROADMAP-AUTO:END -->
 
@@ -49,7 +49,7 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 |---|---|
 | Classes SRD 2014 | 12/12 jouables (création + montée de niveau 1–20 full casters, ASI 5 paliers) |
 | Grimoire mage (quota niv. 7) | **18** sorts |
-| Client web | `web/` — lobby, combat, landing livrés ; HUD visuel lot 4 ✅ ; MVP jouable = lots fonctionnels 7+ |
+| Client web | `web/` — lobby, combat, landing livrés ; HUD visuel lot 4 ✅ ; **MVP combat jouable lot 7 ✅** |
 | Derniers commits (web) | `d6f37c1` brief Fable · `8d56735` landing · `9f54722`/`038efd7` HUD combat · `fc66507` tokens |
 
 ---
@@ -120,10 +120,10 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
   - [x] **4d — Finalisation visuelle (Lot C)** — polish carte décorative, densité panneaux, header HUD, icônes (`9fd416f`).
   - **Hors périmètre lot 4 (volontaire)** : préparation des sorts, panneau d'actions complet (réaction, compétences, etc.) — nécessite backend + lots fonctionnels dédiés ; le HUD expose la place visuelle via placeholders.
 - [x] **Lot 5 — Landing page publique** — direction artistique produit (`LandingScreen.svelte`, route `/`). Horizon marketing, hors combat.
-- [ ] **Lot 7 — MVP combat jouable (web + API)** — ⏭️ **prochain** — boucle de session complète sans map tactique : exposer et brancher les actions réellement exécutables (sorts overlay élargis, réaction ex. `shield`, préparation des sorts si applicable, caractéristiques en fiche active). Front enrichi **en même temps** que chaque feature backend — pas de polish sur données inventées.
-- [ ] **Lot 6 — Map tactique (backend + temps réel)** — ⏸️ **reporté post-v1.0 jouable** — WebSocket, positions réelles, grille interactive (moteur C4 mouvement, pipeline assets/jetons). Remplace les jetons décoratifs du lot 4. Ne pas livrer une map vide avant contenu gameplay.
+- [x] **Lot 7 — MVP combat jouable (web + API)** — ✅ **clôturé août 2026** — boucle de session sans map tactique : sorts action / bonus / réaction / soins branchés (`castable_*` viewer), sélecteur de cible HUD, journal clarifié, parcours **clerc**, **mage** et **barde** validés (tests moteur + API). *Hors périmètre volontaire* : compétences combat (placeholder), `bless` multi-cibles UI, map (lot 6).
+- [ ] **Lot 6 — Map tactique (backend + temps réel)** — ⏭️ **prochain jalon front** — WebSocket, positions réelles, grille interactive (moteur C4 mouvement, pipeline assets/jetons). Remplace les jetons décoratifs du lot 4. Ne pas livrer une map vide avant contenu gameplay.
 
-**Prochain jalon front** : **lot 7 — MVP combat jouable** (actions backend + branchement HUD au fil de l'eau), puis **lot 6** (map) quand le moteur mouvement et les assets le justifient.
+**Prochain jalon front** : **lot 6 — map tactique** (quand le moteur mouvement et les assets le justifient) ; en attendant, lots moteur **B3** / **ÉTAPE 6 WebSocket** possibles en parallèle.
 
 ---
 
@@ -164,7 +164,7 @@ Tous les jalons P2a–P2h sont livrés. Grimoire mage : consultable via **`/pers
 
 Chaîne validée : ASI **5 paliers** (4/8/12/16/19), cap **niv. 20** full casters, cantrip scaling 2d10/3d10/4d10, UI **`AsiDistributionView`**.
 
-**Prochain jalon front** : **lot 7 — MVP combat jouable** (actions backend + branchement HUD au fil de l'eau), puis **lot 6** (map) quand le moteur mouvement et les assets le justifient.
+**Prochain jalon front** : **lot 6 — map tactique** (moteur mouvement + assets) ; lots **B3** / **ÉTAPE 6 WebSocket** possibles en parallèle.
 
 ---
 
