@@ -552,7 +552,7 @@ Défaut : grille **20×20**, placement automatique (ligne horizontale selon `ini
 |---|---|
 | Authentification / autorisation | Banc local |
 | Rate limiting, pagination | Infra / volume |
-| WebSocket / temps réel | Contrat transport distinct |
+| WebSocket / temps réel | Contrat transport distinct — voir [`CONTRAT_WS.md`](CONTRAT_WS.md) |
 | OpenAPI comme contrat normatif | Ce document prime |
 | CORS, déploiement multi-instance | Hors lot |
 | Idempotency-Key, webhooks | Reportés |
