@@ -63,6 +63,21 @@ class TestCombatJournal(unittest.TestCase):
         self.assertIn("Alice", row["summary"])
         self.assertIn("Bob", row["summary"])
 
+    def test_action_consumed_bonus_action_label(self) -> None:
+        entry = CombatLogEntry(
+            log_id=2,
+            combat_id=1,
+            event_type="ActionConsumed",
+            payload={
+                "combatant_id": "a1",
+                "action_kind": "bonus_action",
+            },
+            created_at="2026-08-12T12:00:01+00:00",
+        )
+        row = format_combat_log_entry(entry, _state())
+        self.assertIn("Action bonus consommée", row["summary"])
+        self.assertEqual(row["detail"], "bonus_action")
+
 
 if __name__ == "__main__":
     unittest.main()

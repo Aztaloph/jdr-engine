@@ -108,6 +108,18 @@ def format_combat_log_entry(
         cond = payload.get("condition_id")
         return _row(entry, "system", f"{cond} retiré de {target}", "")
 
+    if event_type == "ActionConsumed":
+        actor = _name(state, payload.get("combatant_id"))
+        kind = str(payload.get("action_kind", "action"))
+        labels = {
+            "action": "Action consommée",
+            "bonus_action": "Action bonus consommée",
+            "reaction": "Réaction consommée",
+            "movement": "Déplacement consommé",
+        }
+        summary = f"{actor} — {labels.get(kind, kind)}"
+        return _row(entry, "system", summary, kind)
+
     return _row(entry, "system", event_type, "")
 
 

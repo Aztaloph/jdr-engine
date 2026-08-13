@@ -457,6 +457,63 @@ class TestCombatSpells(unittest.TestCase):
         self.assertTrue(budget.has_action)
         self.assertFalse(budget.has_bonus_action)
 
+    def test_inflict_wounds_miss_then_spiritual_weapon_same_turn(self) -> None:
+        cleric = Character(
+            owner_id="113",
+            guild_id="guild1",
+            name="Clerc combo",
+            race_id="human",
+            class_id="cleric",
+            level=3,
+            ability_scores=AbilityScores(
+                scores={
+                    "str": 10,
+                    "dex": 10,
+                    "con": 12,
+                    "int": 10,
+                    "wis": 16,
+                    "cha": 10,
+                }
+            ),
+            hp_current=22,
+            hp_max=22,
+            choices={
+                "spellcasting": {
+                    "cantrips_known": ["sacred_flame"],
+                    "spells_prepared": ["inflict_wounds", "spiritual_weapon"],
+                    "slots_used": {},
+                }
+            },
+        )
+        self.char_repo.save(cleric)
+        combat_id, ids = self._active_two(cleric.id, self.target.id)
+        caster_id = ids[cleric.id]
+        target_id = ids[self.target.id]
+
+        state = self.manager.cast_spell(
+            combat_id,
+            caster_id,
+            "inflict_wounds",
+            [target_id],
+            rng=RandSequence([1]),
+        )
+        budget = state.combatants[caster_id].action_budget
+        assert budget is not None
+        self.assertFalse(budget.has_action)
+        self.assertTrue(budget.has_bonus_action)
+
+        state = self.manager.cast_spell(
+            combat_id,
+            caster_id,
+            "spiritual_weapon",
+            [target_id],
+            rng=RandSequence([18, 5]),
+        )
+        budget = state.combatants[caster_id].action_budget
+        assert budget is not None
+        self.assertFalse(budget.has_action)
+        self.assertFalse(budget.has_bonus_action)
+
     def test_heal_combatant_revives_inactive(self) -> None:
         combat_id, ids = self._active_two(self.wizard.id, self.target.id)
         target_id = ids[self.target.id]
