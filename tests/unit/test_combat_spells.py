@@ -181,6 +181,16 @@ class TestSavingThrowRules(unittest.TestCase):
             11,
         )
 
+    def test_zero_damage_on_success_without_half_on_save(self) -> None:
+        self.assertEqual(
+            damage_after_save(8, save_succeeded_flag=True, half_on_save=False),
+            0,
+        )
+        self.assertEqual(
+            damage_after_save(8, save_succeeded_flag=False, half_on_save=False),
+            8,
+        )
+
 
 class TestCombatSpells(unittest.TestCase):
     def setUp(self) -> None:
@@ -283,6 +293,41 @@ class TestCombatSpells(unittest.TestCase):
         self.assertEqual(outcome.damage.application.damage_dealt, 7)
         save_events = [e for e in self.events if isinstance(e, SavingThrowResolved)]
         self.assertEqual(len(save_events), 1)
+
+    def test_sacred_flame_no_damage_on_successful_save(self) -> None:
+        combat_id, ids = self._active_two(self.cleric.id, self.target.id)
+        caster_id = ids[self.cleric.id]
+        target_id = ids[self.target.id]
+        hp_before = self.manager.load_combat(combat_id).combatants[target_id].hp_current
+
+        _state, outcome = self.manager.cast_spell_save(
+            combat_id,
+            caster_id,
+            target_id,
+            "sacred_flame",
+            rng=RandSequence([6, 15]),
+        )
+        self.assertTrue(outcome.succeeded)
+        self.assertEqual(outcome.damage.application.damage_dealt, 0)
+        self.assertEqual(
+            self.manager.load_combat(combat_id).combatants[target_id].hp_current,
+            hp_before,
+        )
+
+    def test_sacred_flame_via_cast_spell(self) -> None:
+        combat_id, ids = self._active_two(self.cleric.id, self.target.id)
+        caster_id = ids[self.cleric.id]
+        target_id = ids[self.target.id]
+        hp_before = self.manager.load_combat(combat_id).combatants[target_id].hp_current
+
+        state = self.manager.cast_spell(
+            combat_id,
+            caster_id,
+            "sacred_flame",
+            [target_id],
+            rng=RandSequence([7, 3]),
+        )
+        self.assertLess(state.combatants[target_id].hp_current, hp_before)
 
     def test_magic_missile_auto_hit_via_cast_dispatch(self) -> None:
         combat_id, ids = self._active_two(self.wizard.id, self.target.id)

@@ -1439,6 +1439,76 @@ class TestApiV1CombatCast(unittest.TestCase):
         caster = response.json()["combatants"][cleric_cid]
         self.assertFalse(caster["action_budget"]["has_action"])
 
+    def test_post_cast_sacred_flame_save(self) -> None:
+        state = self._create_and_activate(channel_id="cast-sacred-flame")
+        combat_id = state["combat_id"]
+        cleric_cid = self._combatant_for_character(state, self.cleric.id)
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+        hp_before = state["combatants"][wizard_cid]["hp_current"]
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.cleric.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        viewer = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.cleric.id},
+        )
+        self.assertIn("sacred_flame", viewer.json()["viewer"]["castable_spells"])
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": cleric_cid,
+                "spell_id": "sacred_flame",
+                "target_ids": [wizard_cid],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        target = response.json()["combatants"][wizard_cid]
+        self.assertLessEqual(target["hp_current"], hp_before)
+
+    def test_post_cast_shield_off_turn_consumes_reaction(self) -> None:
+        state = self._create_and_activate(channel_id="cast-shield-api")
+        combat_id = state["combat_id"]
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] == self.wizard.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        viewer = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.wizard.id},
+        )
+        self.assertIn("shield", viewer.json()["viewer"]["castable_reaction_spells"])
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": wizard_cid,
+                "spell_id": "shield",
+                "target_ids": [],
+            },
+            params={"viewer": self.wizard.id},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        caster = response.json()["combatants"][wizard_cid]
+        self.assertFalse(caster["action_budget"]["has_reaction"])
+        self.assertTrue(
+            any(
+                effect["effect_id"] == "shielded"
+                and effect["target_id"] == wizard_cid
+                for effect in response.json()["active_effects"]
+            )
+        )
+
     def test_post_cast_healing_word_bonus_action(self) -> None:
         from jdr_engine.core.events.bus import EventBus
         from jdr_engine.game.combat_manager import CombatManager

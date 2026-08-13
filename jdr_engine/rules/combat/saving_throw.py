@@ -22,8 +22,11 @@ def damage_after_save(
     """
     Dégâts finaux après sauvegarde.
 
-    Si ``half_on_save`` et sauvegarde réussie : moitié du total, arrondi inférieur.
+    Échec : total complet. Réussite + ``half_on_save`` : moitié (arrondi inf.).
+    Réussite sans demi-dégâts (ex. ``sacred_flame``) : 0.
     """
-    if save_succeeded_flag and half_on_save:
+    if not save_succeeded_flag:
+        return full_total
+    if half_on_save:
         return full_total // 2
-    return full_total
+    return 0
