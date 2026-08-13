@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
+  import { SCENE_TEST_MAP_URL } from "../../constants/scene_map";
   import type { CombatState, Combatant } from "../../types/combat";
 
   let {
@@ -15,6 +16,9 @@
     onMove: (x: number, y: number) => void;
     onSelectTarget?: (combatantId: string) => void;
   } = $props();
+
+  let mapBodyEl: HTMLDivElement | undefined = $state(undefined);
+  let cellSizePx = $state(20);
 
   const viewerCombatantId = $derived(combat.viewer?.combatant_id ?? null);
 
@@ -34,8 +38,9 @@
       (currentBudget?.movement_remaining_ft ?? 0) > 0,
   );
 
+  const grid = $derived(combat.grid);
+
   const cells = $derived.by(() => {
-    const grid = combat.grid;
     if (!grid) {
       return [] as Array<{ x: number; y: number }>;
     }
@@ -57,6 +62,94 @@
       }
     }
     return map;
+  });
+
+  const placedTokens = $derived.by(() => {
+    if (!grid) {
+      return [] as Array<{ combatant: Combatant; x: number; y: number }>;
+    }
+    const list: Array<{ combatant: Combatant; x: number; y: number }> = [];
+    for (const combatant of Object.values(combat.combatants)) {
+      const pos = combatant.position;
+      if (pos != null) {
+        list.push({ combatant, x: pos.x, y: pos.y });
+      }
+    }
+    return list;
+  });
+
+  /* Le cadre doré remplit tout le rectangle disponible ; la grille jouable
+     (cases carrées) est centrée, et les bandes restantes sont comblées par
+     le même quadrillage décoratif (non jouable). */
+  const FRAME_BORDER_PX = 2;
+
+  let frameInnerW = $state(0);
+  let frameInnerH = $state(0);
+
+  const stageOffset = $derived.by(() => {
+    if (!grid) {
+      return { x: 0, y: 0 };
+    }
+    const w = cellSizePx * grid.width;
+    const h = cellSizePx * grid.height;
+    return {
+      x: Math.max(0, Math.round((frameInnerW - w) / 2)),
+      y: Math.max(0, Math.round((frameInnerH - h) / 2)),
+    };
+  });
+
+  const stageStyle = $derived.by(() => {
+    if (!grid) {
+      return "";
+    }
+    const w = cellSizePx * grid.width;
+    const h = cellSizePx * grid.height;
+    return `--cell-size:${cellSizePx}px;width:${w}px;height:${h}px;left:${stageOffset.x}px;top:${stageOffset.y}px;`;
+  });
+
+  /* Quadrillage décoratif aligné sur la grille jouable. */
+  const decoGridStyle = $derived.by(() => {
+    if (!grid || cellSizePx <= 0) {
+      return "";
+    }
+    const offX = stageOffset.x % cellSizePx;
+    const offY = stageOffset.y % cellSizePx;
+    return `background-size:${cellSizePx}px ${cellSizePx}px;background-position:${offX}px ${offY}px;`;
+  });
+
+  const gridLayerStyle = $derived.by(() => {
+    if (!grid) {
+      return "";
+    }
+    return `grid-template-columns: repeat(${grid.width}, 1fr); grid-template-rows: repeat(${grid.height}, 1fr);`;
+  });
+
+  $effect(() => {
+    const host = mapBodyEl;
+    const g = grid;
+    if (!host || !g) {
+      return;
+    }
+
+    const update = () => {
+      const rect = host.getBoundingClientRect();
+      const availW = rect.width - FRAME_BORDER_PX;
+      const availH = rect.height - FRAME_BORDER_PX;
+      if (availW <= 0 || availH <= 0) {
+        return;
+      }
+      frameInnerW = availW;
+      frameInnerH = availH;
+      cellSizePx = Math.max(
+        8,
+        Math.floor(Math.min(availW / g.width, availH / g.height)),
+      );
+    };
+
+    update();
+    const ro = new ResizeObserver(() => update());
+    ro.observe(host);
+    return () => ro.disconnect();
   });
 
   function columnLabel(index: number): string {
@@ -81,16 +174,29 @@
     return tokenByCell.get(`${x},${y}`);
   }
 
+  function tokenPercent(x: number, y: number): { left: number; top: number } {
+    if (!grid) {
+      return { left: 0, top: 0 };
+    }
+    return {
+      left: ((x + 0.5) / grid.width) * 100,
+      top: ((y + 0.5) / grid.height) * 100,
+    };
+  }
+
   function handleCellClick(x: number, y: number) {
-    const occupant = combatantAt(x, y);
-    if (occupant) {
-      if (onSelectTarget && occupant.combatant_id !== viewerCombatantId) {
-        onSelectTarget(occupant.combatant_id);
-      }
+    if (combatantAt(x, y)) {
       return;
     }
     if (canMove) {
       onMove(x, y);
+    }
+  }
+
+  function handleTokenClick(combatant: Combatant, event: MouseEvent) {
+    event.stopPropagation();
+    if (onSelectTarget && combatant.combatant_id !== viewerCombatantId) {
+      onSelectTarget(combatant.combatant_id);
     }
   }
 
@@ -121,8 +227,8 @@
         <Icon name="grid" size={12} />
         Mesure
       </button>
-      {#if combat.grid}
-        <span class="grid-chip mono">{combat.grid.width}×{combat.grid.height}</span>
+      {#if grid}
+        <span class="grid-chip mono">{grid.width}×{grid.height}</span>
       {/if}
     </div>
   </header>
@@ -135,26 +241,23 @@
         <p>Combat terminé — carte en lecture seule.</p>
       {/if}
     </div>
-  {:else if !combat.grid}
+  {:else if !grid}
     <div class="map-message">
       <p>Grille non initialisée — activez le combat pour afficher la carte.</p>
     </div>
   {:else}
-    <div class="map-body">
-      <div class="axis axis-top" style={`--cols: ${combat.grid.width}`}>
-        {#each Array.from({ length: combat.grid.width }) as _, x (x)}
-          <span>{columnLabel(x)}</span>
-        {/each}
-      </div>
-      <div class="map-scroll">
-        <div class="axis axis-left" style={`--rows: ${combat.grid.height}`}>
-          {#each Array.from({ length: combat.grid.height }) as _, y (y)}
-            <span>{y + 1}</span>
-          {/each}
-        </div>
+    <div class="map-body" bind:this={mapBodyEl}>
+      <div class="scene-frame">
         <div
-          class="grid-board"
-          style={`grid-template-columns: repeat(${combat.grid.width}, var(--cell-size));`}
+          class="scene-backdrop"
+          style={`--scene-url: url("${SCENE_TEST_MAP_URL}")`}
+          aria-hidden="true"
+        ></div>
+        <div class="deco-grid" style={decoGridStyle} aria-hidden="true"></div>
+        <div class="play-stage" style={stageStyle}>
+        <div
+          class="grid-layer"
+          style={gridLayerStyle}
           role="grid"
           aria-label="Grille de combat"
         >
@@ -164,33 +267,42 @@
             <button
               type="button"
               class="cell"
-              class:occupied={occupant != null}
               class:current-turn={isCurrent}
               class:move-target={canMove && occupant == null}
-              disabled={loading || (occupant != null && !onSelectTarget)}
-              aria-label={occupant
-                ? `${occupant.display_name} — case ${columnLabel(cell.x)}${cell.y + 1}`
-                : `Case ${columnLabel(cell.x)}${cell.y + 1}`}
+              disabled={loading}
+              aria-label={`Case ${columnLabel(cell.x)}${cell.y + 1}`}
               onclick={() => handleCellClick(cell.x, cell.y)}
+            ></button>
+          {/each}
+        </div>
+
+        <div class="tokens-layer">
+          {#each placedTokens as entry (`${entry.combatant.combatant_id}-${entry.x}-${entry.y}`)}
+            {@const pct = tokenPercent(entry.x, entry.y)}
+            {@const isCurrent = entry.combatant.combatant_id === combat.current_combatant_id}
+            <button
+              type="button"
+              class="token {tokenSide(entry.combatant)}"
+              class:current-turn={isCurrent}
+              class:selectable={onSelectTarget != null &&
+                entry.combatant.combatant_id !== viewerCombatantId}
+              style={`left:${pct.left}%;top:${pct.top}%;width:calc(var(--cell-size) * 0.82);height:calc(var(--cell-size) * 0.82);`}
+              title={entry.combatant.display_name}
+              disabled={loading}
+              aria-label={entry.combatant.display_name}
+              onclick={(e) => handleTokenClick(entry.combatant, e)}
             >
-              {#if occupant}
-                <span
-                  class="token {tokenSide(occupant)}"
-                  class:current-turn={isCurrent}
-                  title={occupant.display_name}
-                >
-                  {initials(occupant.display_name)}
-                </span>
-              {/if}
+              {initials(entry.combatant.display_name)}
             </button>
           {/each}
+        </div>
         </div>
       </div>
     </div>
   {/if}
 
   <footer class="map-foot">
-    {#if combat.status === "active" && combat.grid}
+    {#if combat.status === "active" && grid}
       {#if canMove}
         <span class="foot-note">
           Clic sur une case libre pour déplacer votre personnage
@@ -216,26 +328,21 @@
 
 <style>
   .map {
-    --cell-size: 2rem;
     display: flex;
     flex-direction: column;
+    gap: 0.55rem;
     height: 100%;
     min-height: 540px;
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-lg);
-    background: var(--color-bg-elevated);
-    box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.03),
-      0 8px 24px rgb(0 0 0 / 0.4);
-    overflow: hidden;
   }
 
+  /* Bandeau titre : panneau propre, détaché de la carte (maquette). */
   .map-head {
     display: flex;
     align-items: center;
     gap: 0.6rem;
     padding: 0.5rem 0.8rem;
-    border-bottom: 1px solid var(--color-border-subtle);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-lg);
     background: linear-gradient(rgb(255 255 255 / 0.02), transparent), var(--color-bg-panel);
   }
 
@@ -295,72 +402,88 @@
     text-align: center;
     color: var(--color-text-muted);
     font-size: 0.85rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
   }
 
+  /* Zone neutre : centre le cadre doré, sert de référence de mesure. */
   .map-body {
+    position: relative;
     flex: 1;
     min-height: 0;
-    display: flex;
-    flex-direction: column;
-    padding: 0.5rem 0.65rem 0.35rem;
-    gap: 0.35rem;
-  }
-
-  .axis {
-    display: grid;
-    font-family: var(--font-mono);
-    font-size: 0.58rem;
-    letter-spacing: 0.05em;
-    color: rgb(255 255 255 / 0.22);
-    user-select: none;
-  }
-
-  .axis-top {
-    grid-template-columns: repeat(var(--cols), var(--cell-size));
-    gap: 1px;
-    margin-left: 1.35rem;
-  }
-
-  .axis-top span,
-  .axis-left span {
     display: grid;
     place-items: center;
+    padding: 0;
+    overflow: hidden;
   }
 
-  .map-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    display: flex;
-    gap: 0.35rem;
-    background: #0b0a08;
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-md);
-    padding: 0.35rem;
+  /* Cadre doré : liseré 1px uniforme, angles arrondis, remplit tout l'espace. */
+  .scene-frame {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    border: 1px solid rgb(218 165 32 / 0.85);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #12100e;
   }
 
-  .axis-left {
-    grid-template-rows: repeat(var(--rows), var(--cell-size));
-    gap: 1px;
-    flex-shrink: 0;
+  /* Quadrillage décoratif : mêmes carrés que la grille jouable, non cliquable. */
+  .deco-grid {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgb(255 255 255 / 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.055) 1px, transparent 1px);
   }
 
-  .grid-board {
+  /* Zone jouable : grille du moteur, centrée, cases carrées. */
+  .play-stage {
+    position: absolute;
+    z-index: 2;
+  }
+
+  .scene-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-color: #12100e;
+    background-image:
+      var(--scene-url),
+      radial-gradient(ellipse 90% 70% at 50% 52%, rgb(245 158 11 / 0.07), transparent 62%),
+      radial-gradient(ellipse 40% 30% at 22% 20%, rgb(255 255 255 / 0.02), transparent),
+      radial-gradient(ellipse 35% 28% at 80% 78%, rgb(255 255 255 / 0.015), transparent),
+      repeating-linear-gradient(37deg, rgb(255 255 255 / 0.008) 0 2px, transparent 2px 9px),
+      repeating-linear-gradient(-52deg, rgb(0 0 0 / 0.22) 0 3px, transparent 3px 13px),
+      linear-gradient(#141210, #0c0b09);
+    background-size: cover, auto, auto, auto, auto, auto, auto;
+    background-position: center;
+    background-repeat: no-repeat;
+    pointer-events: none;
+  }
+
+  .grid-layer {
+    position: absolute;
+    inset: 0;
     display: grid;
-    gap: 1px;
-    align-content: start;
+    gap: 0;
+    z-index: 1;
   }
 
   .cell {
-    width: var(--cell-size);
-    height: var(--cell-size);
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
     padding: 0;
-    border: 1px solid rgb(255 255 255 / 0.06);
-    background: rgb(255 255 255 / 0.02);
+    margin: 0;
+    border: 1px solid rgb(255 255 255 / 0.1);
+    background: transparent;
     cursor: default;
-    display: grid;
-    place-items: center;
-    position: relative;
   }
 
   .cell.move-target:not(:disabled) {
@@ -368,39 +491,49 @@
   }
 
   .cell.move-target:not(:disabled):hover {
-    background: rgb(245 158 11 / 0.12);
+    background: rgb(245 158 11 / 0.14);
     border-color: rgb(245 158 11 / 0.35);
   }
 
   .cell.current-turn {
-    box-shadow: inset 0 0 0 1px rgb(245 158 11 / 0.45);
+    box-shadow: inset 0 0 0 1px rgb(245 158 11 / 0.5);
   }
 
-  .cell:disabled {
-    cursor: not-allowed;
+  .tokens-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
   }
 
   .token {
-    width: calc(var(--cell-size) - 4px);
-    height: calc(var(--cell-size) - 4px);
+    position: absolute;
+    translate: -50% -50%;
+    padding: 0;
     border-radius: 50%;
     display: grid;
     place-items: center;
-    font-size: 0.58rem;
+    font-size: clamp(0.48rem, calc(var(--cell-size) * 0.28), 0.72rem);
     font-weight: 700;
     letter-spacing: 0.02em;
     box-shadow: 0 2px 8px rgb(0 0 0 / 0.45);
+    pointer-events: auto;
+    cursor: default;
+  }
+
+  .token.selectable {
+    cursor: pointer;
   }
 
   .token.self {
     border: 2px solid rgb(74 222 128 / 0.85);
-    background: rgb(74 222 128 / 0.12);
+    background: rgb(74 222 128 / 0.18);
     color: rgb(187 247 208);
   }
 
   .token.other {
     border: 2px solid rgb(239 68 68 / 0.85);
-    background: rgb(239 68 68 / 0.12);
+    background: rgb(239 68 68 / 0.18);
     color: rgb(254 202 202);
   }
 
@@ -415,7 +548,8 @@
     align-items: center;
     gap: 0.8rem;
     padding: 0.4rem 0.8rem;
-    border-top: 1px solid var(--color-border-subtle);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-lg);
     background: var(--color-bg-panel);
   }
 

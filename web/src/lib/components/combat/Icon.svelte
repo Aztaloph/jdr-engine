@@ -15,7 +15,8 @@
     | "refresh"
     | "exit"
     | "next"
-    | "user";
+    | "user"
+    | "chevron";
 </script>
 
 <script lang="ts">
@@ -83,5 +84,7 @@
   {:else if name === "user"}
     <circle cx="12" cy="8" r="4" />
     <path d="M4.5 21c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5" />
+  {:else if name === "chevron"}
+    <path d="m6 9 6 6 6-6" />
   {/if}
 </svg>

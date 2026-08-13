@@ -71,6 +71,14 @@
   let targetId = $state("");
   let weaponId = $state<WeaponId>("longsword");
 
+  /** Accordéon actions rapides : un seul menu ouvert à la fois (maquette). */
+  type ActionMenuId = "attack" | "spell" | "dm";
+  let openActionMenu = $state<ActionMenuId | null>(null);
+
+  function toggleActionMenu(menu: ActionMenuId) {
+    openActionMenu = openActionMenu === menu ? null : menu;
+  }
+
   const canAdvance = $derived(
     combat !== null && combat.status === "active" && !loading,
   );
@@ -849,11 +857,19 @@
 
         <Panel title="Actions rapides" icon="sword">
           {#if combat.status === "active"}
-            <div class="action-block">
-              <h3 class="action-title">
-                <Icon name="sword" size={12} />
-                Attaque d'arme
-              </h3>
+            <div class="action-menu" class:menu-open={openActionMenu === "attack"}>
+              <button
+                type="button"
+                class="action-menu-btn"
+                aria-expanded={openActionMenu === "attack"}
+                onclick={() => toggleActionMenu("attack")}
+              >
+                <Icon name="sword" size={13} />
+                <span>Attaque d'arme</span>
+                <span class="menu-chevron"><Icon name="chevron" size={13} /></span>
+              </button>
+              {#if openActionMenu === "attack"}
+                <div class="action-menu-body action-block">
               <div class="attack-form">
                 <label>
                   Attaquant
@@ -889,15 +905,23 @@
                 <Icon name="sword" size={14} />
                 {loading ? "Attaque…" : "Attaquer"}
               </button>
+                </div>
+              {/if}
             </div>
 
-            <div class="action-sep" aria-hidden="true"></div>
-
-            <div class="action-block">
-              <h3 class="action-title">
-                <Icon name="sparkle" size={12} />
-                Lancer un sort
-              </h3>
+            <div class="action-menu" class:menu-open={openActionMenu === "spell"}>
+              <button
+                type="button"
+                class="action-menu-btn"
+                aria-expanded={openActionMenu === "spell"}
+                onclick={() => toggleActionMenu("spell")}
+              >
+                <Icon name="sparkle" size={13} />
+                <span>Lancer un sort</span>
+                <span class="menu-chevron"><Icon name="chevron" size={13} /></span>
+              </button>
+              {#if openActionMenu === "spell"}
+                <div class="action-menu-body action-block">
               {#if viewer.trim() && combat.viewer?.combatant_id}
                 <p class="spell-viewer-label">
                   Personnage : <strong>{combatantName(combat.viewer.combatant_id, combat)}</strong>
@@ -1033,10 +1057,11 @@
                   Aucun sort niv. 1+ préparé sur cette fiche.
                 </p>
               {/if}
+                </div>
+              {/if}
             </div>
 
             {#if preparedRechoicePending && preparedContext?.pool}
-              <div class="action-sep" aria-hidden="true"></div>
               <div class="action-block prepared-block">
                 <h3 class="action-title">
                   <Icon name="sparkle" size={12} />
@@ -1091,13 +1116,19 @@
               </div>
             {/if}
 
-            <div class="action-sep" aria-hidden="true"></div>
-
-            <div class="action-block dm-tools">
-              <h3 class="action-title">
-                <Icon name="wand" size={12} />
-                Outils MJ (banc de test)
-              </h3>
+            <div class="action-menu" class:menu-open={openActionMenu === "dm"}>
+              <button
+                type="button"
+                class="action-menu-btn"
+                aria-expanded={openActionMenu === "dm"}
+                onclick={() => toggleActionMenu("dm")}
+              >
+                <Icon name="wand" size={13} />
+                <span>Outils MJ (banc de test)</span>
+                <span class="menu-chevron"><Icon name="chevron" size={13} /></span>
+              </button>
+              {#if openActionMenu === "dm"}
+                <div class="action-menu-body action-block">
               <p class="hint dm-hint">
                 Utilise la cible sélectionnée ci-dessus. Pour la préparation de sorts :
                 choisissez le viewer du personnage, puis « Repos long ».
@@ -1120,9 +1151,9 @@
                   Repos long
                 </button>
               </div>
+                </div>
+              {/if}
             </div>
-
-            <div class="action-sep" aria-hidden="true"></div>
 
             <button type="button" class="btn-skill" disabled title="En développement">
               <Icon name="wand" size={13} />
@@ -1692,9 +1723,65 @@
     opacity: 0.85;
   }
 
-  .action-sep {
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--color-border-default), transparent);
+  /* ---- accordéon actions rapides ---- */
+
+  .action-menu {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-input);
+    overflow: hidden;
+  }
+
+  .action-menu.menu-open {
+    border-color: rgb(245 158 11 / 0.45);
+  }
+
+  .action-menu-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .action-menu-btn :global(svg) {
+    color: var(--color-accent);
+    opacity: 0.85;
+    flex-shrink: 0;
+  }
+
+  .action-menu-btn span:first-of-type {
+    flex: 1;
+  }
+
+  .action-menu-btn:hover {
+    color: var(--color-text);
+    background: rgb(245 158 11 / 0.06);
+  }
+
+  .menu-chevron {
+    display: inline-flex;
+    transition: rotate 0.15s ease;
+  }
+
+  .menu-open .menu-chevron {
+    rotate: 180deg;
+  }
+
+  .action-menu-body {
+    padding: 0.6rem 0.7rem 0.7rem;
+    border-top: 1px solid var(--color-border-subtle);
   }
 
   .attack-form {
@@ -1791,12 +1878,6 @@
     border-radius: var(--radius-md);
     padding: 0.55rem 0.6rem;
     background: rgb(245 158 11 / 0.06);
-  }
-
-  .dm-tools {
-    border: 1px dashed rgb(148 163 184 / 0.35);
-    border-radius: var(--radius-md);
-    padding: 0.55rem 0.6rem;
   }
 
   .dm-hint {
