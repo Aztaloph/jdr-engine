@@ -90,7 +90,7 @@
   const castableReactionSpells = $derived(
     combat?.viewer?.castable_reaction_spells ?? [],
   );
-  const OVERLAY_SPELL_IDS = new Set(["hex", "bless", "shield"]);
+  const OVERLAY_SPELL_IDS = new Set(["hex", "bless"]);
   const overlayCastableSpells = $derived(
     castableSpells.filter((id) => OVERLAY_SPELL_IDS.has(id)),
   );
@@ -150,7 +150,7 @@
       combat.status === "active" &&
       combat.viewer?.combatant_id != null &&
       targetId !== "" &&
-      targetId !== combat.viewer.combatant_id &&
+      isViewerTurn &&
       !loading,
   );
 
@@ -158,6 +158,7 @@
     combat !== null &&
       combat.status === "active" &&
       combat.viewer?.combatant_id != null &&
+      !isViewerTurn &&
       !loading,
   );
 
@@ -231,21 +232,24 @@
   });
 
   function syncAttackSelectors(state: CombatState) {
+    const allIds = Object.keys(state.combatants);
     const current = state.current_combatant_id;
+
     if (current && state.combatants[current]) {
-      attackerId = current;
+      if (!attackerId || !state.combatants[attackerId]) {
+        attackerId = current;
+      }
     } else if (state.initiative_order.length > 0) {
-      attackerId = state.initiative_order[0];
-    } else {
-      attackerId = "";
+      if (!attackerId || !state.combatants[attackerId]) {
+        attackerId = state.initiative_order[0];
+      }
+    } else if (!attackerId || !state.combatants[attackerId]) {
+      attackerId = allIds[0] ?? "";
     }
 
-    const others = state.initiative_order.filter((cid) => cid !== attackerId);
-    if (others.length > 0) {
-      targetId = others[0];
-    } else {
-      const keys = Object.keys(state.combatants).filter((cid) => cid !== attackerId);
-      targetId = keys[0] ?? "";
+    if (!targetId || !state.combatants[targetId]) {
+      const preferred = allIds.filter((cid) => cid !== attackerId);
+      targetId = preferred[0] ?? allIds[0] ?? "";
     }
   }
 
@@ -874,6 +878,16 @@
                   {/each}
                 </div>
               {/if}
+              {#if isViewerTurn && (castableSpells.length > 0 || castableBonusSpells.length > 0)}
+                <label class="spell-target-label">
+                  Cible du sort
+                  <select bind:value={targetId} class="spell-target-select">
+                    {#each Object.keys(combat.combatants) as cid (cid)}
+                      <option value={cid}>{combatantLabel(cid, combat)}</option>
+                    {/each}
+                  </select>
+                </label>
+              {/if}
               {#if overlayCastableSpells.length > 0}
                 <p class="spell-section-label">Overlay (buff / marque)</p>
                 <div class="spell-actions">
@@ -924,6 +938,9 @@
               {/if}
               {#if castableReactionSpells.length > 0}
                 <p class="spell-section-label">Réaction</p>
+                <p class="hint spell-reaction-hint">
+                  Aucune cible à choisir — le sort s'applique sur le lanceur (ex. bouclier).
+                </p>
                 <div class="spell-actions">
                   {#each castableReactionSpells as spellId (spellId)}
                     <button
@@ -1700,6 +1717,30 @@
     margin: 0 0 0.35rem;
     font-size: 0.75rem;
     color: var(--color-text-muted);
+  }
+
+  .spell-target-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0.5rem 0 0.65rem;
+    font-size: 0.72rem;
+    color: var(--color-text-muted);
+  }
+
+  .spell-target-select {
+    width: 100%;
+    padding: 0.35rem 0.45rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgb(148 163 184 / 0.25);
+    background: var(--color-surface-elevated);
+    color: var(--color-text);
+    font-size: 0.8rem;
+  }
+
+  .spell-reaction-hint {
+    margin: 0 0 0.35rem;
+    font-size: 0.72rem;
   }
 
   .prepared-block {
