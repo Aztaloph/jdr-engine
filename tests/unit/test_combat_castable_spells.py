@@ -87,6 +87,37 @@ def _cleric_character(*, char_id: str = "cleric_char") -> Character:
     )
 
 
+def _bard_character(*, char_id: str = "bard_char") -> Character:
+    return Character(
+        id=char_id,
+        owner_id="115",
+        guild_id="guild1",
+        name="Barde",
+        race_id="human",
+        class_id="bard",
+        level=3,
+        ability_scores=AbilityScores(
+            scores={
+                "str": 8,
+                "dex": 14,
+                "con": 12,
+                "int": 10,
+                "wis": 10,
+                "cha": 16,
+            }
+        ),
+        hp_current=20,
+        hp_max=20,
+        choices={
+            "spellcasting": {
+                "cantrips_known": ["vicious_mockery"],
+                "spells_known": ["healing_word"],
+                "slots_used": {},
+            }
+        },
+    )
+
+
 def _wizard_character(
     *,
     char_id: str = "wizard_char",
@@ -295,6 +326,37 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
         self.assertIn("sacred_flame", action_spells)
         self.assertNotIn("spiritual_weapon", action_spells)
         self.assertEqual(bonus_spells, ["spiritual_weapon"])
+
+    def test_bard_healing_word_in_bonus_list(self) -> None:
+        bard = Combatant(
+            combatant_id="brd44444",
+            display_name="Barde",
+            kind="player_character",
+            character_id="bard_char",
+            hp_current=20,
+            hp_max=20,
+            ac=13,
+            is_active=True,
+            initiative_total=14,
+        ).with_action_budget(fresh_action_budget())
+        state = CombatState(
+            schema_version=COMBAT_STATE_VERSION,
+            ruleset_id="dnd5e",
+            round_number=1,
+            turn_index=0,
+            initiative_order=("brd44444",),
+            combatants={"brd44444": bard},
+            status="active",
+            started_at="2026-08-10T00:00:00+00:00",
+        )
+        char = _bard_character()
+        action_spells = list_combat_castable_spell_ids(state, bard, char, self.engine)
+        self.assertIn("vicious_mockery", action_spells)
+        self.assertNotIn("healing_word", action_spells)
+        self.assertEqual(
+            list_combat_castable_bonus_spell_ids(state, bard, char, self.engine),
+            ["healing_word"],
+        )
 
     def test_wizard_includes_resolved_spells_on_own_turn(self) -> None:
         state, wizard = self._wizard_state(turn_index=1)

@@ -110,6 +110,36 @@ def _ranger(*, name: str = "Rodeur") -> Character:
     )
 
 
+def _bard(*, name: str = "Barde") -> Character:
+    return Character(
+        owner_id="114",
+        guild_id="guild1",
+        name=name,
+        race_id="human",
+        class_id="bard",
+        level=3,
+        ability_scores=AbilityScores(
+            scores={
+                "str": 8,
+                "dex": 14,
+                "con": 12,
+                "int": 10,
+                "wis": 10,
+                "cha": 16,
+            }
+        ),
+        hp_current=20,
+        hp_max=20,
+        choices={
+            "spellcasting": {
+                "cantrips_known": ["vicious_mockery"],
+                "spells_known": ["healing_word"],
+                "slots_used": {},
+            }
+        },
+    )
+
+
 def _cleric(*, name: str = "Clerc") -> Character:
     return Character(
         owner_id="113",
@@ -397,6 +427,35 @@ class TestCombatSpells(unittest.TestCase):
         self.assertEqual(healed, hp_before + 9)
         spell_events = [e for e in self.events if isinstance(e, SpellCast)]
         self.assertEqual(len(spell_events), 1)
+
+    def test_healing_word_heals_via_cast_spell_bonus_action(self) -> None:
+        bard = _bard(name="Barde HW")
+        self.char_repo.save(bard)
+        combat_id, ids = self._active_two(bard.id, self.wizard.id)
+        caster_id = ids[bard.id]
+        target_id = ids[self.wizard.id]
+        self.manager.apply_damage(
+            combat_id, target_id, damage_amount=6, source_id=caster_id
+        )
+        hp_before = self.manager.load_combat(combat_id).combatants[target_id].hp_current
+        before_budget = self.manager.load_combat(combat_id).combatants[caster_id].action_budget
+        assert before_budget is not None
+        self.assertTrue(before_budget.has_action)
+        self.assertTrue(before_budget.has_bonus_action)
+
+        state = self.manager.cast_spell(
+            combat_id,
+            caster_id,
+            "healing_word",
+            [target_id],
+            rng=RandSequence([4]),
+        )
+        # 1d4(4) + mod CHA +3 = 7 — plafonné au pv_max (20)
+        self.assertEqual(state.combatants[target_id].hp_current, min(hp_before + 7, 20))
+        budget = state.combatants[caster_id].action_budget
+        assert budget is not None
+        self.assertTrue(budget.has_action)
+        self.assertFalse(budget.has_bonus_action)
 
     def test_heal_combatant_revives_inactive(self) -> None:
         combat_id, ids = self._active_two(self.wizard.id, self.target.id)

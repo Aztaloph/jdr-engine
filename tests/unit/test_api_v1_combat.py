@@ -927,6 +927,37 @@ def _ranger(*, char_id: str, name: str = "Rodeur") -> Character:
     )
 
 
+def _bard(*, char_id: str, name: str = "Barde") -> Character:
+    return Character(
+        id=char_id,
+        owner_id="115",
+        guild_id="guild1",
+        name=name,
+        race_id="human",
+        class_id="bard",
+        level=3,
+        ability_scores=AbilityScores(
+            scores={
+                "str": 8,
+                "dex": 14,
+                "con": 12,
+                "int": 10,
+                "wis": 10,
+                "cha": 16,
+            }
+        ),
+        hp_current=20,
+        hp_max=20,
+        choices={
+            "spellcasting": {
+                "cantrips_known": ["vicious_mockery"],
+                "spells_known": ["healing_word"],
+                "slots_used": {},
+            }
+        },
+    )
+
+
 def _cleric(*, char_id: str, name: str = "Clerc") -> Character:
     return Character(
         id=char_id,
@@ -1407,6 +1438,78 @@ class TestApiV1CombatCast(unittest.TestCase):
         self.assertGreater(target["hp_current"], hp_before)
         caster = response.json()["combatants"][cleric_cid]
         self.assertFalse(caster["action_budget"]["has_action"])
+
+    def test_post_cast_healing_word_bonus_action(self) -> None:
+        from jdr_engine.core.events.bus import EventBus
+        from jdr_engine.game.combat_manager import CombatManager
+        from jdr_engine.persistence.combat_repository import SqliteCombatRepository
+
+        bard = _bard(char_id="cast_bard_hw", name="Barde HW")
+        self.repo.save(bard)
+
+        created = self.client.post(
+            "/v1/combats",
+            json={
+                "character_ids": [bard.id, self.wizard.id],
+                "channel_id": "cast-healing-word",
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        combat_id = int(created.json()["combat_id"])
+        activated = self.client.post(f"/v1/combats/{combat_id}/activate")
+        self.assertEqual(activated.status_code, 200)
+        state = activated.json()
+        bard_cid = self._combatant_for_character(state, bard.id)
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+
+        manager = CombatManager(
+            EventBus(),
+            SqliteCombatRepository(self.db_path),
+            self.repo,
+            self.engine,
+        )
+        damaged, _resolution = manager.apply_damage(
+            combat_id,
+            wizard_cid,
+            damage_amount=5,
+            source_id=bard_cid,
+        )
+        hp_before = damaged.combatants[wizard_cid].hp_current
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != bard.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        viewer = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": bard.id},
+        )
+        self.assertIn(
+            "healing_word",
+            viewer.json()["viewer"]["castable_bonus_spells"],
+        )
+        self.assertNotIn(
+            "healing_word",
+            viewer.json()["viewer"]["castable_spells"],
+        )
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": bard_cid,
+                "spell_id": "healing_word",
+                "target_ids": [wizard_cid],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        target = response.json()["combatants"][wizard_cid]
+        self.assertGreater(target["hp_current"], hp_before)
+        caster = response.json()["combatants"][bard_cid]
+        self.assertFalse(caster["action_budget"]["has_bonus_action"])
+        self.assertTrue(caster["action_budget"]["has_action"])
 
     def test_post_heal_revives_combatant(self) -> None:
         from jdr_engine.core.events.bus import EventBus
