@@ -11,6 +11,12 @@
     postWeaponAttack,
     syncCombatantFromSheet,
   } from "../api/combat";
+  import {
+    connectCombatWs,
+    type CombatWsHandlerBridge,
+    type CombatWsMessage,
+    type WsConnectionStatus,
+  } from "../api/combat_ws";
   import { postLongRest } from "../api/characters";
   import {
     applyPreparedSpells,
@@ -30,6 +36,7 @@
     type WeaponId,
   } from "../types/attack";
   import { link, router } from "svelte-spa-router";
+  import { tick } from "svelte";
   import { navigateToCombat, navigateToLobby, viewerFromQuerystring } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
   import Panel from "../components/combat/Panel.svelte";
@@ -66,6 +73,26 @@
   let loading = $state(false);
   let journalSeq = $state(0);
   let journal = $state<JournalEntry[]>([]);
+
+  /** Clé de montage WS — mise à jour uniquement après GET initial réussi (pas à chaque patch). */
+  let wsCombatId = $state("");
+  let wsViewer = $state("");
+  let wsRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Force le remontage HUD quand l'état combat change (fiabilité push WS). */
+  let combatRenderKey = $state(0);
+  let wsStatus = $state<WsConnectionStatus | "off">("off");
+  let wsCloseCode = $state("");
+  let wsLastEvent = $state("");
+  let wsLastSyncAt = $state("");
+  let loadCombatSeq = 0;
+
+  /** Pont WS — réassigné à chaque render pour éviter toute closure périmée. */
+  const wsBridge: CombatWsHandlerBridge = {
+    scheduleSync: () => {},
+    onCombatNotFound: () => {},
+    onStatusChange: () => {},
+    onEvent: () => {},
+  };
 
   let attackerId = $state("");
   let targetId = $state("");
@@ -229,6 +256,59 @@
     void loadCombat(id, v);
   });
 
+  /** Pont WS — toujours la dernière logique de sync (lit combatId/viewer au moment de l'appel). */
+  $effect(() => {
+    void combatId;
+    void viewer;
+    void wsViewer;
+
+    wsBridge.scheduleSync = () => {
+      if (wsRefreshTimer !== undefined) {
+        clearTimeout(wsRefreshTimer);
+      }
+      wsRefreshTimer = setTimeout(() => {
+        wsRefreshTimer = undefined;
+        void refreshCombatQuiet();
+      }, 80);
+    };
+    wsBridge.onCombatNotFound = () => {
+      error = {
+        kind: "api",
+        status: 404,
+        code: "COMBAT_NOT_FOUND",
+        message: "Combat introuvable (WebSocket 4404).",
+      };
+    };
+    wsBridge.onStatusChange = (status, detail) => {
+      wsStatus = status;
+      wsCloseCode = status === "closed" && detail ? detail : "";
+    };
+    wsBridge.onEvent = (message: CombatWsMessage) => {
+      if (message.type !== "connected") {
+        wsLastEvent = message.type;
+      }
+    };
+  });
+
+  $effect(() => {
+    const id = wsCombatId;
+    const v = wsViewer;
+    if (!id) {
+      wsStatus = "off";
+      return;
+    }
+
+    const conn = connectCombatWs(id, v, wsBridge);
+
+    return () => {
+      if (wsRefreshTimer !== undefined) {
+        clearTimeout(wsRefreshTimer);
+        wsRefreshTimer = undefined;
+      }
+      conn.disconnect();
+    };
+  });
+
   $effect(() => {
     const characterId = viewer.trim();
     const pending = preparedRechoicePending;
@@ -276,6 +356,7 @@
 
   function applyCombatState(state: CombatState) {
     combat = state;
+    combatRenderKey += 1;
     syncAttackSelectors(state);
     void syncJournalFromServer();
   }
@@ -323,15 +404,37 @@
   }
 
   async function loadCombat(id: string, viewerParam: string) {
+    const seq = ++loadCombatSeq;
     error = null;
     loading = true;
+    const trimmed = id.trim();
+    const nextViewer = viewerParam.trim();
+    if (!trimmed) {
+      loading = false;
+      return;
+    }
+    if (trimmed !== wsCombatId && wsCombatId !== "") {
+      wsCombatId = "";
+    }
     try {
-      applyCombatState(await fetchCombatState(id, viewerParam));
+      const state = await fetchCombatState(trimmed, nextViewer);
+      if (seq !== loadCombatSeq) {
+        return;
+      }
+      applyCombatState(state);
+      wsCombatId = trimmed;
+      wsViewer = nextViewer;
     } catch (e) {
+      if (seq !== loadCombatSeq) {
+        return;
+      }
       combat = null;
+      wsCombatId = "";
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
     } finally {
-      loading = false;
+      if (seq === loadCombatSeq) {
+        loading = false;
+      }
     }
   }
 
@@ -346,6 +449,28 @@
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
     } finally {
       loading = false;
+    }
+  }
+
+  /** Resync silencieux (push WS) — fallback Recharger si échec. */
+  async function refreshCombatQuiet() {
+    const id = combatId.trim();
+    if (!id) {
+      return;
+    }
+    const viewerParam = wsViewer || viewer;
+    try {
+      applyCombatState(
+        await fetchCombatState(id, viewerParam, { cacheBust: true }),
+      );
+      wsLastSyncAt = new Date().toLocaleTimeString("fr-FR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      await tick();
+    } catch {
+      /* non bloquant */
     }
   }
 
@@ -629,6 +754,21 @@
           <span class="status-dot" aria-hidden="true"></span>
           {combat.status}
         </span>
+        {#if import.meta.env.DEV && wsCombatId}
+          <span
+            class="pill pill-ws"
+            class:pill-live={wsStatus === "open"}
+            class:pill-ws-error={wsStatus === "error" || wsStatus === "closed"}
+            title="WebSocket temps réel — statut {wsStatus}{wsCloseCode ? ` (${wsCloseCode})` : ''}{wsLastEvent ? ` · dernier evt. ${wsLastEvent}` : ''}{wsLastSyncAt ? ` · sync ${wsLastSyncAt}` : ''}"
+          >
+            <span class="status-dot" aria-hidden="true"></span>
+            WS {wsStatus}{#if wsCloseCode}
+              ({wsCloseCode}){/if}
+            {#if wsLastEvent}
+              · {wsLastEvent}
+            {/if}
+          </span>
+        {/if}
       </div>
     {/if}
 
@@ -685,6 +825,7 @@
   {/if}
 
   {#if combat}
+    {#key combatRenderKey}
     <div class="hud-grid" aria-live="polite">
       <div class="col col-left">
         <Panel title="Membres du groupe" icon="users" badge={`${groupOrder.length}`}>
@@ -1198,6 +1339,7 @@
         </Panel>
       </div>
     </div>
+    {/key}
 
     <DiceBar />
   {/if}
@@ -1346,6 +1488,23 @@
 
   .pill-live {
     color: var(--color-success);
+  }
+
+  .pill-ws {
+    font-size: 0.65rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .pill-ws.pill-live {
+    color: var(--color-success);
+    border-color: rgb(74 222 128 / 0.45);
+  }
+
+  .pill-ws-error {
+    color: var(--color-danger);
+    border-color: rgb(248 113 113 / 0.45);
   }
 
   .topbar-controls {

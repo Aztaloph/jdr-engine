@@ -16,6 +16,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from interfaces.api.combat_routes import register_combat_routes
+from interfaces.api.combat_ws import (
+    CombatWsHub,
+    attach_combat_ws_handlers,
+    register_combat_ws_routes,
+)
 from interfaces.api.diagnostic.event_buffer import EventRingBuffer
 from interfaces.api.diagnostic.recording_bus import RecordingEventBus
 from interfaces.api.errors import ApiError, register_error_handlers
@@ -263,6 +268,15 @@ def create_app(
         initiative_rng=combat_initiative_rng,
         attack_rng=combat_attack_rng,
     )
+
+    combat_ws_hub = CombatWsHub()
+    attach_combat_ws_handlers(combat_ws_hub, event_bus)
+    register_combat_ws_routes(
+        app,
+        hub=combat_ws_hub,
+        combat_service=combat_service,
+    )
+    app.state.combat_ws_hub = combat_ws_hub
 
     @app.get("/")
     def serve_client() -> FileResponse:

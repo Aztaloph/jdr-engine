@@ -65,6 +65,7 @@ async function parseJsonResponse<T>(res: Response): Promise<T | LoadError> {
 export async function fetchCombatState(
   combatId: string,
   viewer?: string,
+  options?: { cacheBust?: boolean },
 ): Promise<CombatState> {
   const id = combatId.trim();
   if (!id) {
@@ -76,12 +77,15 @@ export async function fetchCombatState(
   if (viewerTrimmed) {
     params.set("viewer", viewerTrimmed);
   }
+  if (options?.cacheBust) {
+    params.set("_", String(Date.now()));
+  }
   const query = params.toString();
   const url = `/v1/combats/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
 
   let res: Response;
   try {
-    res = await fetch(url);
+    res = await fetch(url, { cache: "no-store" });
   } catch (cause) {
     throw {
       kind: "network",
