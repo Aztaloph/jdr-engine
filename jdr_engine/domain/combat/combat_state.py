@@ -8,8 +8,9 @@ from typing import Any, Literal
 
 from jdr_engine.domain.combat.combatant import Combatant
 from jdr_engine.domain.combat.active_effect import ActiveEffect
+from jdr_engine.domain.combat.combat_grid import CombatGrid
 
-COMBAT_STATE_VERSION = 2
+COMBAT_STATE_VERSION = 3
 
 CombatStatus = Literal["preparing", "active", "ended"]
 
@@ -55,9 +56,10 @@ class CombatState:
     guild_id: str | None = None
     channel_id: str | None = None
     active_effects: tuple[ActiveEffect, ...] = ()
+    grid: CombatGrid | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "schema_version": self.schema_version,
             "ruleset_id": self.ruleset_id,
             "round_number": self.round_number,
@@ -73,6 +75,9 @@ class CombatState:
                 effect.to_dict() for effect in self.active_effects
             ],
         }
+        if self.grid is not None:
+            payload["grid"] = self.grid.to_dict()
+        return payload
 
     @classmethod
     def from_dict(
@@ -103,6 +108,7 @@ class CombatState:
         }
         initiative = data.get("initiative_order") or []
         raw_effects = data.get("active_effects") or []
+        raw_grid = data.get("grid")
         return cls(
             schema_version=version,
             ruleset_id=str(data.get("ruleset_id", "dnd5e")),
@@ -118,6 +124,11 @@ class CombatState:
             channel_id=channel_id,
             active_effects=tuple(
                 ActiveEffect.from_dict(item) for item in raw_effects
+            ),
+            grid=(
+                CombatGrid.from_dict(raw_grid)
+                if raw_grid is not None
+                else None
             ),
         )
 

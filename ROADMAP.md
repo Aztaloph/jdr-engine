@@ -37,9 +37,9 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 <!-- ROADMAP-AUTO:START -->
 | Indicateur | Valeur |
 |---|---|
-| Tests unitaires | **1002** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
+| Tests unitaires | **1017** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
 | Sorts curated (YAML) | **42** (`compendium/dnd5e/entries/spells/*/definition.yaml`) |
-| Commit HEAD | `96bb75e` |
+| Commit HEAD | `f3328d0` |
 | Dernière sync auto | 2026-08-13 |
 <!-- ROADMAP-AUTO:END -->
 
@@ -85,18 +85,19 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
     - [x] Tables progression niv. 6–20 (A1), correction slot niv. 4 (A1-bis), cap + tests 5→20 (A2)
   - [ ] **Passe 3 — Automatisation des aptitudes** (forme sauvage, métamagie à l'incantation, canalisation d'énergie, arme/familier de pacte…)
   - [ ] **Passe 4 — Passe UI / affichage** (libellés, fix limite de caractères des embeds, libellé « Sous-classe (niv. 3) »)
-- [ ] **ÉTAPE 4 : Système de combat** — 🚧 **boucle moteur livrée** (C0–C7, ADR-004/005) ; dettes ouvertes = effets au-delà de `bless`/`hunters_mark`, `prone`, movement inerte. **API moteur pure** (fonctions + events), **aucun rendu Discord/Web**. Voir [`VISION.md`](VISION.md) §5.
+- [ ] **ÉTAPE 4 : Système de combat** — 🚧 **boucle moteur livrée** (C0–**C8**, ADR-004/005) ; dettes ouvertes = effets au-delà de `bless`/`hunters_mark`, `prone`. **API moteur pure** (fonctions + events), **aucun rendu Discord/Web**. Voir [`VISION.md`](VISION.md) §5.
   > Prérequis techniques : **EventBus** (ADR-003 ✅), **Game Engine** (`CombatManager`, ADR-004 ✅), **Rule Engine** jets/dégâts ✅. Chaque lot ci-dessous est **livrable et testable sans interface**.
   - [x] **C0 — EventBus & socle** : `EventBus` in-process typé + `DomainEvent` (ADR-003), capture de test ; ossature `Game Engine` combat.
   - [x] **C1 — Modèle d'état de combat** : `CombatManager` — participants, PV/CA, ordre, tour courant ; état persistable (blob JSON SQLite).
   - [x] **C2 — Initiative** : jets, tri, événements `CombatStarted` / `InitiativeRolled` / `TurnStarted` / `RoundStarted`.
   - [x] **C3 — Résolution d'attaque & sorts** : jet vs CA + dégâts, attaque/sauvegarde de sort (`AttackRollResolved`, `DamageDealt`, `SavingThrowResolved`).
-  - [x] **C4 — Économie d'actions** : action / action bonus / réaction / mouvement par tour, validation des dépenses. *(dette : budget `movement` inerte — ADR-004)*
+  - [x] **C4 — Économie d'actions** : action / action bonus / réaction / mouvement par tour, validation des dépenses. *(movement en pieds — lot 8 C8 ✅)*
   - [x] **C5 — Concentration (combat)** : rupture sur dégâts (sauvegarde CON), nettoyage overlay concentration. *(horloge durée rounds : ADR-006 ✅)*
   - [x] **C6 — Conditions en combat** : application/retrait phase 1 (`frightened`, `poisoned`), impact jets via `collect_*`. *(dette : `prone`, conditions → `ActiveEffect` — hors ADR-006)*
   - [x] **C7 — Service & persistance** : `CombatService`, journal événementiel, auto-save handler. *(dette : `_persist()` handler-only — post-C7)*
   - [x] **ADR-005 — Fin de rencontre** : sync PV/concentration à `close_combat`, auto-close `advance_turn`, encounter-scoped conditions.
   - [x] **ADR-006 — Effets actifs unifiés** (doc `c48d9b6` ; impl. A+B+C `c09a89b`→`94156f4`, poussé sur `main`) : `ActiveEffect`, horloge `round_number`, registre `rules/effects/`, migration `bless`/`hunters_mark`, blob `COMBAT_STATE_VERSION` **2**, adaptateurs `collect_*`, persistance consolidée.
+  - [x] **C8 — Géométrie de combat (lot 8 moteur + API)** — ✅ **clôturé août 2026** — positions, grille (`grid` dans l'état), distance/portée, `movement_remaining_ft`, `POST …/move`, validation spatiale attaques/sorts, blob **v3**. Brief : [`docs/combat/BRIEF_LOT8_GEOMETRIE.md`](docs/combat/BRIEF_LOT8_GEOMETRIE.md). *Hors périmètre* : LoS, pathfinding, brouillard de guerre. **Prérequis lot 6 front (map tactique).**
 - [ ] **ÉTAPE 6 : API (REST + WebSocket)** — 🚧 **REST combat + personnage livrés** (`docs/api/CONTRAT.md`, `interfaces/api/`) : cycle de vie combat, attaque fusionnée, cast overlay, `advance-turn`, clôture, viewer. **Reste ouvert** : WebSocket map (lot 6 front), auth, push EventBus temps réel.
 - [ ] **ÉTAPE 7 : Client Web (interface de jeu principale)** — 🚧 **en cours** ([ADR-007](docs/adr/ADR-007-stack-client-web.md)). Découpage : section **Piste client Web** ci-dessous. Spécification UX : VISION.md §4.
 - [ ] **ÉTAPE 8 : Discord minimal** — 🔜 nouveau (ordre 5). Réduction au social : chat, lancement de partie, `/personnage` → Web, notifications (via EventBus). Voir VISION.md §3.
@@ -121,9 +122,9 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
   - **Hors périmètre lot 4 (volontaire)** : préparation des sorts, panneau d'actions complet (réaction, compétences, etc.) — nécessite backend + lots fonctionnels dédiés ; le HUD expose la place visuelle via placeholders.
 - [x] **Lot 5 — Landing page publique** — direction artistique produit (`LandingScreen.svelte`, route `/`). Horizon marketing, hors combat.
 - [x] **Lot 7 — MVP combat jouable (web + API)** — ✅ **clôturé août 2026** — boucle de session sans map tactique : sorts action / bonus / réaction / soins branchés (`castable_*` viewer), sélecteur de cible HUD, journal clarifié, parcours **clerc**, **mage** et **barde** validés (tests moteur + API). *Hors périmètre volontaire* : compétences combat (placeholder), `bless` multi-cibles UI, map (lot 6).
-- [ ] **Lot 6 — Map tactique (backend + temps réel)** — ⏭️ **prochain jalon front** — WebSocket, positions réelles, grille interactive (moteur C4 mouvement, pipeline assets/jetons). Remplace les jetons décoratifs du lot 4. Ne pas livrer une map vide avant contenu gameplay.
+- [ ] **Lot 6 — Map tactique (front + temps réel)** — 🔜 **après lot 8 moteur** — WebSocket, grille interactive, jetons sur positions API (`grid`, `position`, `POST …/move`). Remplace les jetons décoratifs du lot 4. Ne pas livrer une map vide avant le contrat géométrie lot 8.
 
-**Prochain jalon front** : **lot 6 — map tactique** (quand le moteur mouvement et les assets le justifient) ; en attendant, lots moteur **B3** / **ÉTAPE 6 WebSocket** possibles en parallèle.
+**Prochain jalon** : **lot 6 front — map tactique** (consomme API lot 8) ; lots **B3** / **ÉTAPE 6 WebSocket** possibles en parallèle.
 
 ---
 
@@ -164,7 +165,7 @@ Tous les jalons P2a–P2h sont livrés. Grimoire mage : consultable via **`/pers
 
 Chaîne validée : ASI **5 paliers** (4/8/12/16/19), cap **niv. 20** full casters, cantrip scaling 2d10/3d10/4d10, UI **`AsiDistributionView`**.
 
-**Prochain jalon front** : **lot 6 — map tactique** (moteur mouvement + assets) ; lots **B3** / **ÉTAPE 6 WebSocket** possibles en parallèle.
+**Prochain jalon** : **lot 6 front — map tactique** (consomme API lot 8) ; lots **B3** / **ÉTAPE 6 WebSocket** possibles en parallèle.
 
 ---
 

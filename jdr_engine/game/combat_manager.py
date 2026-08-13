@@ -19,6 +19,7 @@ from jdr_engine.core.events.combat_events import (
     ConditionRemoved,
     DamageDealt,
     InitiativeRolled,
+    PositionChanged,
     RoundStarted,
     SavingThrowResolved,
     SpellCast,
@@ -39,6 +40,8 @@ from jdr_engine.domain.combat.combat_state import (
 )
 from jdr_engine.domain.combat.combatant import Combatant
 from jdr_engine.domain.combat.active_effect import ActiveEffect
+from jdr_engine.domain.combat.combat_grid import CombatGrid
+from jdr_engine.domain.combat.grid_position import GridPosition
 from jdr_engine.persistence.combat_repository import (
     CombatNotFoundError,
     CombatRecord,
@@ -76,6 +79,20 @@ from jdr_engine.rules.effects.collect import (
     hex_bonus_applies_for_target,
     hunters_mark_bonus_applies_for_target,
 )
+from jdr_engine.rules.combat.grid_geometry import (
+    in_range,
+    is_cell_free,
+    movement_cost_ft,
+)
+from jdr_engine.rules.combat.placement import (
+    GridTooSmallError,
+    default_combatant_placements,
+)
+from jdr_engine.rules.combat.spell_ranges import (
+    resolve_spell_range,
+    spell_range_ft_for_target,
+)
+from jdr_engine.rules.combat.weapons import weapon_attack_range_ft
 from jdr_engine.rules.combat.saving_throw import (
     damage_after_save,
     save_succeeded,
@@ -149,6 +166,24 @@ class CombatantNotFoundError(Exception):
 
 class NotCombatantTurnError(Exception):
     """Action tentée hors du tour du combattant."""
+
+
+class OutOfRangeError(Exception):
+    """Cible hors portée spatiale."""
+
+    code = "OUT_OF_RANGE"
+
+
+class CellOccupiedError(Exception):
+    """Case de destination déjà occupée."""
+
+    code = "CELL_OCCUPIED"
+
+
+class InvalidPositionError(Exception):
+    """Coordonnées hors grille ou invalides."""
+
+    code = "INVALID_POSITION"
 
 
 @dataclass(frozen=True)
@@ -359,10 +394,14 @@ class CombatManager:
         self,
         combat_id: int,
         *,
+        grid_width: int = 20,
+        grid_height: int = 20,
+        placements: dict[str, GridPosition] | None = None,
         rng: Callable[[], int] | None = None,
     ) -> CombatState:
         """
-        Passe en ``active``, calcule l'initiative (ordre figé), démarre le tour 1.
+        Passe en ``active``, calcule l'initiative (ordre figé), pose la grille
+        et les positions, démarre le tour 1.
 
         Requiert au moins deux combattants actifs.
         """
@@ -376,19 +415,32 @@ class CombatManager:
             raise InsufficientCombatantsError(
                 "Au moins deux combattants sont requis pour activer le combat."
             )
+        if grid_width < 1 or grid_height < 1:
+            raise ValueError("Les dimensions de grille doivent être positives.")
 
         rolls = self._roll_initiative_for_combatants(active, rng=rng)
         order = sort_initiative_order(rolls)
         roll_by_id = {r.combatant_id: r for r in rolls}
 
+        grid = CombatGrid(width=grid_width, height=grid_height)
+        resolved_placements = self._resolve_initial_placements(
+            order,
+            grid,
+            placements,
+        )
+
         updated_combatants = dict(state.combatants)
         for combatant_id, roll in roll_by_id.items():
             old = updated_combatants[combatant_id]
+            speed_ft = self._movement_speed_ft(old.character_id)
             updated_combatants[combatant_id] = replace(
-                old, initiative_total=roll.total
-            ).with_action_budget(fresh_action_budget())
+                old,
+                initiative_total=roll.total,
+                position=resolved_placements[combatant_id],
+            ).with_action_budget(fresh_action_budget(movement_speed_ft=speed_ft))
 
         state.combatants = updated_combatants
+        state.grid = grid
         state.initiative_order = order
         state.status = "active"
         state.round_number = 1
@@ -399,7 +451,79 @@ class CombatManager:
         assert record is not None
         self._publish_initiative_events(record, rolls, order)
         self._publish_turn_started(state)
-        return state
+        return self._require_state(combat_id)
+
+    def move_combatant(
+        self,
+        combat_id: int,
+        combatant_id: str,
+        x: int,
+        y: int,
+    ) -> CombatState:
+        """
+        Déplace un combattant vers ``(x, y)`` — enregistrement d'état direct.
+
+        Valide tour, budget mouvement, bornes, case libre. Pas de pathfinding.
+        """
+        state = self._require_state(combat_id)
+        if state.status != "active":
+            raise CombatStatusError(
+                "Le déplacement n'est possible qu'en combat actif."
+            )
+        if state.grid is None:
+            raise CombatStatusError("Grille de combat non initialisée.")
+        if self._current_turn_combatant_id(state) != combatant_id:
+            raise NotCombatantTurnError(
+                "Seul le combattant actif peut se déplacer."
+            )
+
+        combatant = self._require_combatant(state, combatant_id)
+        if combatant.position is None:
+            raise CombatStatusError(
+                f"Position absente pour le combattant {combatant_id!r}."
+            )
+        if not state.grid.contains(x, y):
+            raise InvalidPositionError(
+                f"Case ({x}, {y}) hors grille {state.grid.width}×{state.grid.height}."
+            )
+        if not is_cell_free(state, x, y, ignore_combatant_id=combatant_id):
+            raise CellOccupiedError(
+                f"Case ({x}, {y}) déjà occupée."
+            )
+
+        destination = GridPosition(x=x, y=y)
+        cost_ft = movement_cost_ft(combatant.position, destination)
+        budget = combatant.action_budget
+        if budget is None:
+            raise ActionBudgetExhaustedError(
+                f"Budget non initialisé pour {combatant_id!r}."
+            )
+        new_budget = budget.consume_movement_ft(cost_ft)
+        old_position = combatant.position
+
+        state.combatants[combatant_id] = combatant.with_position(
+            destination
+        ).with_action_budget(new_budget)
+        self._persist(state)
+
+        self._bus.publish(
+            PositionChanged(
+                ruleset_id=state.ruleset_id,
+                combat_id=state.combat_id or str(combat_id),
+                guild_id=state.guild_id or "",
+                channel_id=state.channel_id or "",
+                combatant_id=combatant_id,
+                from_x=old_position.x,
+                from_y=old_position.y,
+                to_x=x,
+                to_y=y,
+                cost_ft=cost_ft,
+                movement_remaining_ft=new_budget.movement_remaining_ft,
+                round_number=state.round_number,
+                turn_index=state.turn_index,
+            )
+        )
+        return self._require_state(combat_id)
 
     def advance_turn(self, combat_id: int) -> CombatState:
         """Termine le tour courant et démarre le suivant (combattants inactifs ignorés)."""
@@ -560,6 +684,7 @@ class CombatManager:
         *,
         rng: RandInt | None = None,
         consume_action: bool = True,
+        max_range_ft: int | None = None,
     ) -> AttackRollResolution:
         """
         Résout un jet d'attaque vs la CA cible — sans modifier les PV.
@@ -577,6 +702,12 @@ class CombatManager:
 
         if consume_action:
             self._consume_budget(combat_id, attacker_id, "action")
+
+        if max_range_ft is not None:
+            state = self._require_state(combat_id)
+            self._assert_combatants_in_range(
+                state, attacker_id, target_id, max_range_ft
+            )
 
         state = self._require_state(combat_id)
         attacker = self._require_combatant(state, attacker_id)
@@ -723,6 +854,8 @@ class CombatManager:
         if spell.effect_type != "spell_attack":
             raise SpellCastError(f"{spell_id!r} n'est pas une attaque de sort.")
 
+        self._assert_spell_target_in_range(state, caster_id, target_id, spell_id)
+
         action_kind = spell_combat_action_kind(spell, locale=locale)
         self._consume_budget(combat_id, caster_id, action_kind)
 
@@ -787,6 +920,8 @@ class CombatManager:
         spell = load_combat_spell(self._engine, spell_id, locale=locale)
         if spell.effect_type != "saving_throw":
             raise SpellCastError(f"{spell_id!r} n'est pas un sort à sauvegarde.")
+
+        self._assert_spell_target_in_range(state, caster_id, target_id, spell_id)
 
         action_kind = spell_combat_action_kind(spell, locale=locale)
         self._consume_budget(combat_id, caster_id, action_kind)
@@ -882,6 +1017,8 @@ class CombatManager:
                 f"{spell_id!r} n'est pas un sort à touché automatique."
             )
 
+        self._assert_spell_target_in_range(state, caster_id, target_id, spell_id)
+
         action_kind = spell_combat_action_kind(spell, locale=locale)
         self._consume_budget(combat_id, caster_id, action_kind)
 
@@ -946,6 +1083,8 @@ class CombatManager:
             raise SpellCastError(f"{spell_id!r} n'est pas une attaque de sort.")
         if not _is_multi_attack_spell(spell.spell_def, spell.effect):
             raise SpellCastError(f"{spell_id!r} n'est pas un sort multi-attaque.")
+
+        self._assert_spell_target_in_range(state, caster_id, target_id, spell_id)
 
         instances = _spell_attack_instances(spell.effect)
         action_kind = spell_combat_action_kind(spell, locale=locale)
@@ -1018,6 +1157,8 @@ class CombatManager:
         spell = load_combat_spell(self._engine, spell_id, locale=locale)
         if spell.effect_type != "healing":
             raise SpellCastError(f"{spell_id!r} n'est pas un sort de soins.")
+
+        self._assert_spell_target_in_range(state, caster_id, target_id, spell_id)
 
         action_kind = spell_combat_action_kind(spell, locale=locale)
         self._consume_budget(combat_id, caster_id, action_kind)
@@ -1110,6 +1251,7 @@ class CombatManager:
         caster_char = self._require_character(caster.character_id)
 
         spell = load_combat_spell(self._engine, "hunters_mark", locale=locale)
+        self._assert_spell_target_in_range(state, caster_id, target_id, "hunters_mark")
         self._consume_budget(combat_id, caster_id, "bonus_action")
 
         state = self._require_state(combat_id)
@@ -1160,6 +1302,7 @@ class CombatManager:
         caster = self._require_combatant(state, caster_id)
         for target_id in target_ids:
             self._require_combatant(state, target_id)
+            self._assert_spell_target_in_range(state, caster_id, target_id, "bless")
         caster_char = self._require_character(caster.character_id)
 
         spell = load_combat_spell(self._engine, "bless", locale=locale)
@@ -1214,6 +1357,7 @@ class CombatManager:
         caster_char = self._require_character(caster.character_id)
 
         spell = load_combat_spell(self._engine, "hex", locale=locale)
+        self._assert_spell_target_in_range(state, caster_id, target_id, "hex")
         self._consume_budget(combat_id, caster_id, "action")
 
         state = self._require_state(combat_id)
@@ -2028,8 +2172,9 @@ class CombatManager:
     def _publish_turn_started(self, state: CombatState) -> None:
         combatant_id = state.initiative_order[state.turn_index]
         combatant = state.combatants[combatant_id]
+        speed_ft = self._movement_speed_ft(combatant.character_id)
         state.combatants[combatant_id] = combatant.with_action_budget(
-            fresh_action_budget()
+            fresh_action_budget(movement_speed_ft=speed_ft)
         )
         self._persist(state)
 
@@ -2044,6 +2189,84 @@ class CombatManager:
                 turn_index=state.turn_index,
             )
         )
+
+    def _movement_speed_ft(self, character_id: str) -> int:
+        character = self._require_character(character_id)
+        sheet = build_character_sheet(character, self._engine)
+        return sheet.speed
+
+    def _resolve_initial_placements(
+        self,
+        initiative_order: tuple[str, ...],
+        grid: CombatGrid,
+        placements: dict[str, GridPosition] | None,
+    ) -> dict[str, GridPosition]:
+        if placements is None:
+            try:
+                return default_combatant_placements(initiative_order, grid)
+            except GridTooSmallError as exc:
+                raise ValueError(str(exc)) from exc
+
+        resolved: dict[str, GridPosition] = {}
+        for combatant_id in initiative_order:
+            if combatant_id not in placements:
+                raise ValueError(
+                    f"Placement manquant pour le combattant {combatant_id!r}."
+                )
+            position = placements[combatant_id]
+            if not grid.contains(position.x, position.y):
+                raise InvalidPositionError(
+                    f"Case ({position.x}, {position.y}) hors grille "
+                    f"{grid.width}×{grid.height}."
+                )
+            resolved[combatant_id] = position
+
+        occupied: set[tuple[int, int]] = set()
+        for combatant_id in initiative_order:
+            position = resolved[combatant_id]
+            key = (position.x, position.y)
+            if key in occupied:
+                raise CellOccupiedError(
+                    f"Case ({position.x}, {position.y}) dupliquée."
+                )
+            occupied.add(key)
+        return resolved
+
+    def _assert_combatants_in_range(
+        self,
+        state: CombatState,
+        origin_id: str,
+        target_id: str,
+        range_ft: int,
+    ) -> None:
+        origin = self._require_combatant(state, origin_id)
+        target = self._require_combatant(state, target_id)
+        if origin.position is None or target.position is None:
+            raise CombatStatusError(
+                "Positions requises pour la validation de portée."
+            )
+        if not in_range(origin.position, target.position, range_ft):
+            raise OutOfRangeError(
+                f"Cible {target_id!r} hors portée ({range_ft} ft) "
+                f"depuis {origin_id!r}."
+            )
+
+    def _assert_spell_target_in_range(
+        self,
+        state: CombatState,
+        caster_id: str,
+        target_id: str,
+        spell_id: str,
+    ) -> None:
+        spec = resolve_spell_range(spell_id)
+        range_ft = spell_range_ft_for_target(
+            spec,
+            caster_id=caster_id,
+            target_id=target_id,
+        )
+        if range_ft is None:
+            return
+        self._assert_combatants_in_range(state, caster_id, target_id, range_ft)
 
     def _current_turn_combatant_id(self, state: CombatState) -> str:
         return state.initiative_order[state.turn_index]

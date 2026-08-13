@@ -392,7 +392,7 @@ Validation Pydantic : si présent, entier `1`–`9` ; le rejet métier intervien
 | Combat absent | 404 | `COMBAT_NOT_FOUND` |
 | `caster_id` / cible absente de la rencontre | 404 | `COMBATANT_NOT_FOUND` |
 | Personnage SQLite introuvable | 404 | `CHARACTER_NOT_FOUND` |
-| Hors tour / budget / statut | 409 | `NOT_COMBATANT_TURN`, `ACTION_BUDGET_EXHAUSTED`, `COMBAT_STATUS_INVALID` |
+| Hors tour / budget / statut | 409 | `NOT_COMBATANT_TURN`, `ACTION_BUDGET_EXHAUSTED`, `COMBAT_STATUS_INVALID`, `OUT_OF_RANGE`, `CELL_OCCUPIED`, `INVALID_POSITION` |
 | Règle sort (cibles, emplacement, etc.) | 422 | `SPELL_CAST_REJECTED` |
 | `viewer` inconnu | 404 | `VIEWER_NOT_IN_COMBAT` |
 
@@ -500,7 +500,8 @@ snake_case ; vocabulaire SRD ; modes de jet `normal` / `avantage` / `desavantage
 | Créer rencontre (lobby) | `POST /v1/combats` | `character_ids` obligatoire ; `channel_id`, `guild_id` optionnels |
 | Lire rencontre | `GET /v1/combats/{combat_id}` | Query `viewer` optionnel (`character_id`) — §2.8 |
 | Avancer le tour | `POST /v1/combats/{combat_id}/advance-turn` | Query `viewer` optionnel — §2.8 |
-| Activer | `POST /v1/combats/{combat_id}/activate` | — |
+| Activer | `POST /v1/combats/{combat_id}/activate` | Body optionnel §5.5 (`grid`, `placements`) |
+| Déplacer | `POST /v1/combats/{combat_id}/move` | §5.5 ; query `viewer` optionnel |
 | Attaque d'arme (fusionnée) | `POST /v1/combats/{combat_id}/attack` | §2.7 ; query `viewer` optionnel — §2.8 |
 | Sort en combat | `POST /v1/combats/{combat_id}/cast` | §2.9 ; query `viewer` optionnel — §2.8 |
 | Clore | `POST /v1/combats/{combat_id}/close` | — |
@@ -519,6 +520,29 @@ snake_case ; vocabulaire SRD ; modes de jet `normal` / `avantage` / `desavantage
 - **Client web lot 2** (2026-08-09) : panneau attaque ; filtrage `viewer` sur `target`/`damage` aligné GET combat.
 
 **Hors lot 2 API** : sorts combat, conditions API, `apply-damage` générique exposé, Extra Attack, état pending, `Idempotency-Key`. *(Avancement de tour : lot 0 API + web.)*
+
+### 5.5 Lot 8 — géométrie de combat (livré)
+
+Brief : [`docs/combat/BRIEF_LOT8_GEOMETRIE.md`](../combat/BRIEF_LOT8_GEOMETRIE.md).
+
+- **`COMBAT_STATE_VERSION` = 3** — blobs antérieurs refusés (`CombatStateVersionError` → recréer la rencontre).
+- **`GET /v1/combats/{id}`** (combat `active`) : `grid: { width, height }` ; chaque combattant inclut `position: { x, y }` (**sans filtrage `viewer`**).
+- **`POST /v1/combats/{id}/activate`** — body optionnel :
+
+```json
+{
+  "grid": { "width": 20, "height": 20 },
+  "placements": { "<combatant_id>": { "x": 1, "y": 10 } }
+}
+```
+
+Défaut : grille **20×20**, placement automatique (ligne horizontale selon `initiative_order`).
+
+- **`POST /v1/combats/{id}/move`** — body `{ "combatant_id", "x", "y" }` ; enregistrement d'état direct (pas de pathfinding). Consomme `movement_remaining_ft` (Chebyshev × 5 ft, conforme SRD).
+- **`ActionBudget`** : `movement_remaining_ft: int` remplace `has_movement`.
+- **Portée** : `POST …/attack` et `POST …/cast` rejettent `409 OUT_OF_RANGE` si cible hors portée spatiale.
+- **Codes erreur lot 8** : `OUT_OF_RANGE`, `CELL_OCCUPIED`, `INVALID_POSITION`.
+- **Hors lot 8** : ligne de vue, brouillard de guerre, pathfinding, terrain difficile, attaques d'opportunité.
 
 ---
 

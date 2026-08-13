@@ -7,6 +7,7 @@ from pathlib import Path
 from jdr_engine.core.events.bus import EventBus
 from jdr_engine.core.events.handlers.combat_auto_save import CombatAutoSaveHandler
 from jdr_engine.domain.combat.combat_state import CombatState
+from jdr_engine.domain.combat.grid_position import GridPosition
 from jdr_engine.game.combat_manager import (
     AttackRollResolution,
     CombatManager,
@@ -84,8 +85,31 @@ class CombatService:
     ) -> CombatState:
         return self._manager.create_combat(guild_id, channel_id, character_ids)
 
-    def activate_combat(self, combat_id: int, *, rng=None) -> CombatState:
-        return self._manager.activate_combat(combat_id, rng=rng)
+    def activate_combat(
+        self,
+        combat_id: int,
+        *,
+        grid_width: int = 20,
+        grid_height: int = 20,
+        placements: dict[str, GridPosition] | None = None,
+        rng=None,
+    ) -> CombatState:
+        return self._manager.activate_combat(
+            combat_id,
+            grid_width=grid_width,
+            grid_height=grid_height,
+            placements=placements,
+            rng=rng,
+        )
+
+    def move_combatant(
+        self,
+        combat_id: int,
+        combatant_id: str,
+        x: int,
+        y: int,
+    ) -> CombatState:
+        return self._manager.move_combatant(combat_id, combatant_id, x, y)
 
     def advance_turn(self, combat_id: int) -> CombatState:
         return self._manager.advance_turn(combat_id)
@@ -128,9 +152,15 @@ class CombatService:
         request,
         *,
         rng=None,
+        max_range_ft: int | None = None,
     ) -> AttackRollResolution:
         return self._manager.resolve_attack_roll(
-            combat_id, attacker_id, target_id, request, rng=rng
+            combat_id,
+            attacker_id,
+            target_id,
+            request,
+            rng=rng,
+            max_range_ft=max_range_ft,
         )
 
     def apply_damage(

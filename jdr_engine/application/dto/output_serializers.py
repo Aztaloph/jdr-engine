@@ -232,12 +232,12 @@ def character_sheet_to_dict(sheet: CharacterSheet) -> dict[str, Any]:
     }
 
 
-def _action_budget_to_dict(budget: ActionBudget) -> dict[str, bool]:
+def _action_budget_to_dict(budget: ActionBudget) -> dict[str, int | bool]:
     return {
         "has_action": budget.has_action,
         "has_bonus_action": budget.has_bonus_action,
         "has_reaction": budget.has_reaction,
-        "has_movement": budget.has_movement,
+        "movement_remaining_ft": budget.movement_remaining_ft,
     }
 
 
@@ -287,6 +287,8 @@ def _combatant_to_dict(
         "character_id": combatant.character_id,
         "is_active": combatant.is_active,
     }
+    if combatant.position is not None:
+        payload["position"] = combatant.position.to_dict()
     if combatant.initiative_total is not None:
         payload["initiative_total"] = combatant.initiative_total
 
@@ -413,6 +415,11 @@ def combat_state_to_dict(
         "active_effects": active_effects,
         "started_at": state.started_at,
         "ended_at": state.ended_at,
+        **(
+            {"grid": state.grid.to_dict()}
+            if state.grid is not None
+            else {}
+        ),
         **(
             {"viewer": viewer_context}
             if viewer is not None and viewer_context is not None

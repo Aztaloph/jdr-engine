@@ -30,13 +30,23 @@ from jdr_engine.application.dto.output_serializers import (
 )
 from jdr_engine.domain.combat.combat_state import CombatState
 from jdr_engine.domain.combat.action_budget import ActionBudgetExhaustedError
+from jdr_engine.domain.combat.grid_position import GridPosition
 from jdr_engine.game.combat_manager import (
+    CellOccupiedError,
     CombatCharacterNotFoundError,
     CombatStatusError,
     CombatantNotFoundError,
     InsufficientCombatantsError,
+    InvalidPositionError,
     NotCombatantTurnError,
+    OutOfRangeError,
 )
+from jdr_engine.rules.combat.weapons import (
+    UnknownWeaponError,
+    resolve_weapon,
+    weapon_attack_range_ft,
+)
+from jdr_engine.rules.spellcasting.cast import SpellCastError
 from jdr_engine.persistence.combat_repository import (
     CombatNotFoundError,
     OpenCombatExistsError,
@@ -45,8 +55,6 @@ from jdr_engine.persistence.combat_repository import (
 from jdr_engine.persistence.sqlite_character_repository import (
     SqliteCharacterRepository,
 )
-from jdr_engine.rules.combat.weapons import UnknownWeaponError, resolve_weapon
-from jdr_engine.rules.spellcasting.cast import SpellCastError
 
 
 class CreateCombatRequest(BaseModel):
@@ -83,6 +91,35 @@ class CombatSyncRequestBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     combatant_id: str = Field(min_length=1)
+
+
+class ActivateGridBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    width: int = Field(default=20, ge=1, le=200)
+    height: int = Field(default=20, ge=1, le=200)
+
+
+class ActivatePositionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+
+
+class ActivateCombatRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    grid: ActivateGridBody | None = None
+    placements: dict[str, ActivatePositionBody] | None = None
+
+
+class MoveCombatantRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    combatant_id: str = Field(min_length=1)
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
 
 
 def register_combat_routes(
@@ -244,10 +281,32 @@ def register_combat_routes(
         }
 
     @app.post("/v1/combats/{combat_id}/activate")
-    def activate_combat(combat_id: int, request: Request) -> dict:
+    def activate_combat(
+        combat_id: int,
+        request: Request,
+        body: ActivateCombatRequestBody | None = None,
+    ) -> dict:
         rng = getattr(request.app.state, "combat_initiative_rng", None)
+        grid_width = 20
+        grid_height = 20
+        placements: dict[str, GridPosition] | None = None
+        if body is not None:
+            if body.grid is not None:
+                grid_width = body.grid.width
+                grid_height = body.grid.height
+            if body.placements is not None:
+                placements = {
+                    combatant_id: GridPosition(x=pos.x, y=pos.y)
+                    for combatant_id, pos in body.placements.items()
+                }
         try:
-            state = combat_service.activate_combat(combat_id, rng=rng)
+            state = combat_service.activate_combat(
+                combat_id,
+                grid_width=grid_width,
+                grid_height=grid_height,
+                placements=placements,
+                rng=rng,
+            )
         except CombatNotFoundError as exc:
             raise ApiError(
                 404,
@@ -265,6 +324,18 @@ def register_combat_routes(
             raise ApiError(
                 409,
                 "COMBAT_STATUS_INVALID",
+                str(exc),
+            ) from exc
+        except (InvalidPositionError, CellOccupiedError) as exc:
+            raise ApiError(
+                409,
+                exc.code,
+                str(exc),
+            ) from exc
+        except ValueError as exc:
+            raise ApiError(
+                422,
+                "VALIDATION_ERROR",
                 str(exc),
             ) from exc
         return _serialize_combat_state(state, viewer=None)
@@ -337,6 +408,7 @@ def register_combat_routes(
                 body.target_id,
                 roll_request,
                 rng=rng,
+                max_range_ft=weapon_attack_range_ft(weapon_profile),
             )
         except CombatNotFoundError as exc:
             raise ApiError(
@@ -361,6 +433,12 @@ def register_combat_routes(
             raise ApiError(
                 409,
                 "NOT_COMBATANT_TURN",
+                str(exc),
+            ) from exc
+        except OutOfRangeError as exc:
+            raise ApiError(
+                409,
+                exc.code,
                 str(exc),
             ) from exc
         except CombatStatusError as exc:
@@ -479,6 +557,12 @@ def register_combat_routes(
                 "NOT_COMBATANT_TURN",
                 str(exc),
             ) from exc
+        except OutOfRangeError as exc:
+            raise ApiError(
+                409,
+                exc.code,
+                str(exc),
+            ) from exc
         except CombatStatusError as exc:
             raise ApiError(
                 409,
@@ -589,6 +673,64 @@ def register_combat_routes(
             ) from exc
 
         return _serialize_combat_state(state, viewer=normalized_viewer)
+
+    @app.post("/v1/combats/{combat_id}/move")
+    def move_combatant(
+        combat_id: int,
+        body: MoveCombatantRequestBody,
+        viewer: str | None = None,
+    ) -> dict:
+        try:
+            state = combat_service.move_combatant(
+                combat_id,
+                body.combatant_id,
+                body.x,
+                body.y,
+            )
+        except CombatNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBAT_NOT_FOUND",
+                "Combat introuvable.",
+                details={"combat_id": combat_id},
+            ) from exc
+        except CombatantNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBATANT_NOT_FOUND",
+                str(exc),
+            ) from exc
+        except ActionBudgetExhaustedError as exc:
+            raise ApiError(
+                409,
+                "ACTION_BUDGET_EXHAUSTED",
+                str(exc),
+            ) from exc
+        except NotCombatantTurnError as exc:
+            raise ApiError(
+                409,
+                "NOT_COMBATANT_TURN",
+                str(exc),
+            ) from exc
+        except InvalidPositionError as exc:
+            raise ApiError(
+                409,
+                exc.code,
+                str(exc),
+            ) from exc
+        except CellOccupiedError as exc:
+            raise ApiError(
+                409,
+                exc.code,
+                str(exc),
+            ) from exc
+        except CombatStatusError as exc:
+            raise ApiError(
+                409,
+                "COMBAT_STATUS_INVALID",
+                str(exc),
+            ) from exc
+        return _serialize_combat_state(state, viewer=viewer)
 
     @app.post("/v1/combats/{combat_id}/advance-turn")
     def advance_turn(

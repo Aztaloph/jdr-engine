@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 from jdr_engine.domain.combat.action_budget import ActionBudget, fresh_action_budget
+from jdr_engine.domain.combat.grid_position import GridPosition
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class Combatant:
     concentration_spell_id: str | None = None
     concentration_spell_name: str | None = None
     action_budget: ActionBudget | None = None
+    position: GridPosition | None = None
 
     def to_dict(self) -> dict:
         payload = {
@@ -48,6 +50,8 @@ class Combatant:
             payload["concentration_spell_name"] = self.concentration_spell_name
         if self.action_budget is not None:
             payload["action_budget"] = self.action_budget.to_dict()
+        if self.position is not None:
+            payload["position"] = self.position.to_dict()
         return payload
 
     @classmethod
@@ -70,6 +74,11 @@ class Combatant:
             action_budget=(
                 ActionBudget.from_dict(raw_budget)
                 if (raw_budget := data.get("action_budget")) is not None
+                else None
+            ),
+            position=(
+                GridPosition.from_dict(raw_position)
+                if (raw_position := data.get("position")) is not None
                 else None
             ),
         )
@@ -102,3 +111,6 @@ class Combatant:
 
     def with_action_budget(self, budget: ActionBudget | None) -> Combatant:
         return replace(self, action_budget=budget)
+
+    def with_position(self, position: GridPosition | None) -> Combatant:
+        return replace(self, position=position)

@@ -37,7 +37,7 @@ def _budget_allows(budget, kind: ActionKind) -> bool:
         return budget.has_bonus_action
     if kind == "reaction":
         return budget.has_reaction
-    return budget.has_movement
+    return budget.movement_remaining_ft > 0
 
 
 def _list_overlay_spell_ids(

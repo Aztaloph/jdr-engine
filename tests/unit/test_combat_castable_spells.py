@@ -175,7 +175,7 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
             ac=14,
             is_active=True,
             initiative_total=18,
-        ).with_action_budget(ranger_budget or fresh_action_budget())
+        ).with_action_budget(ranger_budget or fresh_action_budget(movement_speed_ft=30))
         cleric = Combatant(
             combatant_id="clr22222",
             display_name="Clerc",
@@ -186,7 +186,7 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
             ac=16,
             is_active=True,
             initiative_total=12,
-        ).with_action_budget(cleric_budget or fresh_action_budget())
+        ).with_action_budget(cleric_budget or fresh_action_budget(movement_speed_ft=30))
         state = CombatState(
             schema_version=COMBAT_STATE_VERSION,
             ruleset_id="dnd5e",
@@ -210,7 +210,7 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
             ac=14,
             is_active=True,
             initiative_total=18,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         wizard = Combatant(
             combatant_id="wiz33333",
             display_name="Magicien",
@@ -221,7 +221,7 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
             ac=12,
             is_active=True,
             initiative_total=6,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         state = CombatState(
             schema_version=COMBAT_STATE_VERSION,
             ruleset_id="dnd5e",
@@ -263,7 +263,7 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
             has_action=True,
             has_bonus_action=False,
             has_reaction=True,
-            has_movement=True,
+            movement_remaining_ft=30,
         )
         state, ranger, _ = self._state(ranger_budget=budget)
         char = _ranger_character()
@@ -338,7 +338,7 @@ class TestListCombatCastableSpellIds(unittest.TestCase):
             ac=13,
             is_active=True,
             initiative_total=14,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         state = CombatState(
             schema_version=COMBAT_STATE_VERSION,
             ruleset_id="dnd5e",
@@ -479,7 +479,7 @@ class TestListCombatCastableReactionSpellIds(unittest.TestCase):
             ac=14,
             is_active=True,
             initiative_total=18,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         wizard = Combatant(
             combatant_id="wiz33333",
             display_name="Magicien",
@@ -490,7 +490,7 @@ class TestListCombatCastableReactionSpellIds(unittest.TestCase):
             ac=12,
             is_active=True,
             initiative_total=6,
-        ).with_action_budget(wizard_budget or fresh_action_budget())
+        ).with_action_budget(wizard_budget or fresh_action_budget(movement_speed_ft=30))
         state = CombatState(
             schema_version=COMBAT_STATE_VERSION,
             ruleset_id="dnd5e",
@@ -524,7 +524,7 @@ class TestListCombatCastableReactionSpellIds(unittest.TestCase):
             has_action=True,
             has_bonus_action=True,
             has_reaction=False,
-            has_movement=True,
+            movement_remaining_ft=30,
         )
         state, _, wizard = self._state(turn_index=0, wizard_budget=budget)
         char = _wizard_character()

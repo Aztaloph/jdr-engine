@@ -383,7 +383,7 @@ class TestCombatStateDto(unittest.TestCase):
                 has_action=False,
                 has_bonus_action=True,
                 has_reaction=True,
-                has_movement=True,
+                movement_remaining_ft=30,
             ),
         )
         effect = ActiveEffect(

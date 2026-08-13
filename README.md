@@ -10,7 +10,7 @@
 
 | 🧪 Tests | ⚔️ Classes | ✨ Sorts | 🐍 Python |
 |:--------:|:----------:|:-------:|:---------:|
-| **835** ✅ | **12/12** | **42** | **3.12** |
+| **1017** ✅ | **12/12** | **42** | **3.12** |
 
 </p>
 
@@ -29,10 +29,10 @@ La **cible** est une plateforme JDR complète : moteur de règles indépendant, 
 
 | Priorité | Focus |
 |:--------:|-------|
-| 🔧 **Maintenant** | Extension **B4** (effets de sorts via registre), dettes combat mineures, API banc de test |
+| 🌐 **Prochain jalon front** | **Lot 6** — map tactique (consomme l'API géométrie lot 8) |
+| ⚔️ **Combat moteur** | C0–**C8** livrés — grille, positions, mouvement, portée spatiale |
+| 🔧 **En parallèle** | Extension **B4** (effets de sorts), contenu catalogue **B3** |
 | 🛡️ **Discord** | Commandes existantes **maintenues**, pas de nouvelles features joueur |
-| ⚔️ **Combat moteur** | Boucle **livrée** (C0–C7, ADR-004/005/006) — API pure, sans rendu UI |
-| 🌐 **Ensuite** | Client Web (fiche, sorts, HUD de combat, écran MJ) |
 
 ---
 
@@ -76,17 +76,18 @@ Le **Combat Engine** vit dans `jdr_engine/game/` et `jdr_engine/domain/combat/` 
 |-------|--------|
 | Cycle de vie | Création, initiative, tours, rounds, clôture (ADR-005) |
 | Règles | Attaque vs CA, dégâts, sorts (attaque / sauvegarde), économie d'actions |
+| **Géométrie (C8)** | Grille `grid`, positions, `movement_remaining_ft`, portée spatiale attaques/sorts |
 | Concentration | Rupture sur dégâts (save CON), nettoyage des buffs liés |
 | Effets actifs | Registre `ActiveEffect`, horloge combat, persistance blob (ADR-006) |
-| Buffs mécaniques | `bless` (+1d4), `hunters_mark` (+1d6) via registre |
+| Buffs mécaniques | `bless` (+1d4), `hunters_mark` (+1d6), `hex` (+1d6) via registre |
 
-Persistance SQLite (`CombatState` JSON, version blob **2**). Décisions actées : [`docs/adr/`](docs/adr/).
+Persistance SQLite (`CombatState` JSON, version blob **3**). Brief lot 8 : [`docs/combat/BRIEF_LOT8_GEOMETRIE.md`](docs/combat/BRIEF_LOT8_GEOMETRIE.md). Décisions actées : [`docs/adr/`](docs/adr/).
 
 ---
 
-## 🔌 API HTTP — banc de test
+## 🔌 API HTTP — banc de test + combat
 
-Une **API FastAPI** permet d'observer un personnage **hors Discord** : fiche calculée, lancer un sort, repos court/long. Couche de sérialisation **données uniquement** (pas de texte pré-formaté Discord).
+Une **API FastAPI** permet d'exercer le moteur **hors Discord** : fiche calculée, cycle de combat complet, lancer un sort, repos. Contrat : [`docs/api/CONTRAT.md`](docs/api/CONTRAT.md).
 
 ```powershell
 venv\Scripts\python.exe -m pip install -r requirements.txt
@@ -99,8 +100,14 @@ venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 |:-------:|-------|-------|
 | `GET` | `/v1/characters/{id}/sheet` | Fiche calculée (DTO JSON) |
 | `POST` | `/v1/characters/{id}/cast` | Lance un sort, persiste l'état |
-| `POST` | `/v1/characters/{id}/short-rest` | Repos court |
-| `POST` | `/v1/characters/{id}/long-rest` | Repos long |
+| `POST` | `/v1/combats` | Crée une rencontre (lobby) |
+| `POST` | `/v1/combats/{id}/activate` | Active — grille + positions initiales |
+| `POST` | `/v1/combats/{id}/move` | Déplacement (budget `movement_remaining_ft`) |
+| `POST` | `/v1/combats/{id}/attack` | Attaque d'arme fusionnée (jet + dégâts) |
+| `POST` | `/v1/combats/{id}/cast` | Sort en combat (overlay ou dispatch) |
+| `GET` | `/v1/combats/{id}` | État rencontre (`grid`, `position`, viewer) |
+
+Client Web (`web/`, Svelte + Vite) — lobby, HUD combat, landing ; proxy `/v1` → `:8000`. Voir [`ROADMAP.md`](ROADMAP.md) piste client Web.
 
 ---
 
@@ -164,7 +171,7 @@ Créez un rôle Discord nommé **`MJ`**. Repos, montée de niveau et suppression
 python -m unittest discover -s tests -p "test_*.py" -q
 ```
 
-**835 tests** — moteur de règles, sorts, combat (C0–C7), effets actifs (ADR-006), concentration, DTO/API, persistance SQLite.
+**1017 tests** — moteur de règles, sorts, combat (C0–C8), géométrie, effets actifs (ADR-006), API v1 combat, client Web (intégration), persistance SQLite.
 
 Validation compendium :
 
@@ -212,9 +219,9 @@ Le **Rule Engine** charge le Compendium YAML et calcule les stats dérivées —
 | **Axe B — Schéma v2.0** | ✅ | 42 sorts curated, pools dérivés YAML |
 | **Concentration (hors combat)** | ✅ | Pose, remplacement, repos, affichage fiche (13 sorts) |
 | **DTO + API HTTP** | ✅ | `output_serializers`, endpoints personnage, banc de test |
-| **Étape 4 — Combat moteur** | ✅ | C0–C7, ADR-004/005, persistance blob, journal événementiel |
-| **B4 — Effets de sorts** | 🚧 | `bless` / `hunters_mark` via registre (ADR-006) ; suite catalogue à venir |
-| **Client Web** | 🔜 | Interface de jeu principale (en parallèle du moteur — VISION D7, [ADR-007](docs/adr/ADR-007-stack-client-web.md)) |
+| **Étape 4 — Combat moteur** | ✅ | C0–**C8** — géométrie, grille, mouvement, portée (blob v3) |
+| **Client Web** | 🚧 | Lobby, HUD combat (lot 7 ✅), landing ; **prochain** : map tactique (lot 6) |
+| **B4 — Effets de sorts** | 🚧 | `bless` / `hunters_mark` / `hex` via registre ; suite catalogue à venir |
 
 Documentation sorts → [`docs/SPELLS_INVENTORY.md`](docs/SPELLS_INVENTORY.md) · [`docs/SPELL_SCHEMA.md`](docs/SPELL_SCHEMA.md)
 

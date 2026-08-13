@@ -14,6 +14,7 @@ __all__ = [
     "UnknownWeaponError",
     "WeaponProfile",
     "resolve_weapon",
+    "weapon_attack_range_ft",
 ]
 
 
@@ -36,6 +37,14 @@ class WeaponProfile:
     melee_weapon: bool
     ranged_weapon: bool
     finesse_weapon: bool = False
+    normal_range_ft: int = 5
+
+
+def weapon_attack_range_ft(profile: WeaponProfile) -> int:
+    """Portée normale en pieds pour une attaque (mêlée 5 ft, distance ``normal_range_ft``)."""
+    if profile.ranged_weapon and not profile.melee_weapon:
+        return profile.normal_range_ft
+    return 5
 
 
 _WEAPONS_BY_ID: dict[str, WeaponProfile] = {
@@ -57,12 +66,14 @@ _WEAPONS_BY_ID: dict[str, WeaponProfile] = {
         damage_dice="1d6",
         melee_weapon=False,
         ranged_weapon=True,
+        normal_range_ft=80,
     ),
     "longbow": WeaponProfile(
         weapon_id="longbow",
         damage_dice="1d8",
         melee_weapon=False,
         ranged_weapon=True,
+        normal_range_ft=150,
     ),
 }
 

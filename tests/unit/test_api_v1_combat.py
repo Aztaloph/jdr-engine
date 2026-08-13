@@ -1804,5 +1804,121 @@ class TestApiV1CombatEvents(unittest.TestCase):
         self.assertIn("dégâts", summaries.lower())
 
 
+class TestApiV1CombatGeometry(unittest.TestCase):
+    """Lot 8 — positions, grille, mouvement, portée via HTTP."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = _engine()
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = init_database(Path(self._tmpdir.name) / "bot.db")
+        self.repo = SqliteCharacterRepository(self.db_path)
+        self.alice = _fighter(char_id="geo_alice", name="Alice", dex=16)
+        self.bob = _fighter(char_id="geo_bob", name="Bob", dex=10)
+        for char in (self.alice, self.bob):
+            self.repo.save(char)
+        self.client = TestClient(
+            create_app(engine=self.engine, db_path=self.db_path)
+        )
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _create_and_activate(self):
+        created = self.client.post(
+            "/v1/combats",
+            json={"character_ids": [self.alice.id, self.bob.id]},
+        )
+        self.assertEqual(created.status_code, 200)
+        combat_id = created.json()["combat_id"]
+        activated = self.client.post(f"/v1/combats/{combat_id}/activate")
+        self.assertEqual(activated.status_code, 200)
+        return combat_id, activated.json()
+
+    def test_positions_present_after_activate(self):
+        _combat_id, body = self._create_and_activate()
+        self.assertIn("grid", body)
+        self.assertEqual(body["grid"]["width"], 20)
+        self.assertEqual(body["grid"]["height"], 20)
+        for combatant in body["combatants"].values():
+            self.assertIn("position", combatant)
+            self.assertIn("x", combatant["position"])
+            self.assertIn("y", combatant["position"])
+
+    def test_post_move_happy_path(self):
+        combat_id, body = self._create_and_activate()
+        current_id = body["current_combatant_id"]
+        pos = body["combatants"][current_id]["position"]
+        budget_before = body["combatants"][current_id]["action_budget"][
+            "movement_remaining_ft"
+        ]
+        moved = self.client.post(
+            f"/v1/combats/{combat_id}/move",
+            json={
+                "combatant_id": current_id,
+                "x": pos["x"],
+                "y": pos["y"] + 1,
+            },
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        updated = moved.json()["combatants"][current_id]
+        self.assertEqual(updated["position"]["y"], pos["y"] + 1)
+        self.assertEqual(
+            updated["action_budget"]["movement_remaining_ft"],
+            budget_before - 5,
+        )
+
+    def test_post_move_not_combatant_turn(self):
+        combat_id, body = self._create_and_activate()
+        current_id = body["current_combatant_id"]
+        other_id = next(
+            cid for cid in body["initiative_order"] if cid != current_id
+        )
+        other_pos = body["combatants"][other_id]["position"]
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/move",
+            json={
+                "combatant_id": other_id,
+                "x": other_pos["x"],
+                "y": other_pos["y"],
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(_api_error(response)["code"], "NOT_COMBATANT_TURN")
+
+    def test_attack_out_of_range(self):
+        combat_id, body = self._create_and_activate()
+        attacker_id = body["current_combatant_id"]
+        target_id = next(
+            cid for cid in body["initiative_order"] if cid != attacker_id
+        )
+        target_pos = body["combatants"][target_id]["position"]
+        # Éloigne l'attaquant de 20 ft (4 cases)
+        far_x = target_pos["x"] + 4
+        current_pos = body["combatants"][attacker_id]["position"]
+        move_far = self.client.post(
+            f"/v1/combats/{combat_id}/move",
+            json={
+                "combatant_id": attacker_id,
+                "x": far_x,
+                "y": current_pos["y"],
+            },
+        )
+        self.assertEqual(move_far.status_code, 200, move_far.text)
+
+        attack = self.client.post(
+            f"/v1/combats/{combat_id}/attack",
+            json={
+                "attacker_id": attacker_id,
+                "target_id": target_id,
+                "weapon_id": "longsword",
+            },
+        )
+        self.assertEqual(attack.status_code, 409)
+        self.assertEqual(_api_error(attack)["code"], "OUT_OF_RANGE")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

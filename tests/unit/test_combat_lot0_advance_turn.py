@@ -227,7 +227,7 @@ class TestCombatStateViewerDto(unittest.TestCase):
             ac=16,
             is_active=True,
             initiative_total=15,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         bob = Combatant(
             combatant_id="bbb22222",
             display_name="Bob",
@@ -238,7 +238,7 @@ class TestCombatStateViewerDto(unittest.TestCase):
             ac=14,
             is_active=True,
             initiative_total=10,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         state = CombatState(
             schema_version=COMBAT_STATE_VERSION,
             ruleset_id="dnd5e",
@@ -272,7 +272,7 @@ class TestCombatStateViewerDto(unittest.TestCase):
             ac=16,
             is_active=True,
             initiative_total=15,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         bob = Combatant(
             combatant_id="bbb22222",
             display_name="Bob",
@@ -283,7 +283,7 @@ class TestCombatStateViewerDto(unittest.TestCase):
             ac=14,
             is_active=True,
             initiative_total=10,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         state = CombatState(
             schema_version=COMBAT_STATE_VERSION,
             ruleset_id="dnd5e",
@@ -318,7 +318,7 @@ class TestCombatStateViewerDto(unittest.TestCase):
             ac=16,
             is_active=True,
             initiative_total=15,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         bob = Combatant(
             combatant_id="bbb22222",
             display_name="Bob",
@@ -329,7 +329,7 @@ class TestCombatStateViewerDto(unittest.TestCase):
             ac=14,
             is_active=True,
             initiative_total=10,
-        ).with_action_budget(fresh_action_budget())
+        ).with_action_budget(fresh_action_budget(movement_speed_ft=30))
         state = CombatState(
             schema_version=COMBAT_STATE_VERSION,
             ruleset_id="dnd5e",

@@ -180,3 +180,19 @@ class ActionConsumed(DomainEvent):
     action_kind: str
     round_number: int
     turn_index: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class PositionChanged(DomainEvent):
+    combat_id: str
+    guild_id: str
+    channel_id: str
+    combatant_id: str
+    from_x: int
+    from_y: int
+    to_x: int
+    to_y: int
+    cost_ft: int
+    movement_remaining_ft: int
+    round_number: int
+    turn_index: int
