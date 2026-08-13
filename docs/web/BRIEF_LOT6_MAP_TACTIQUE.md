@@ -5,16 +5,17 @@
 | **Statut** | **Accepté** — mainteneur 2026-08-13 |
 | **Date** | 2026-08-13 (acceptation arbitrages §12) |
 | **Prérequis** | Lot 8 moteur + API ✅ ([`BRIEF_LOT8_GEOMETRIE.md`](../combat/BRIEF_LOT8_GEOMETRIE.md)) ; lot 7 MVP combat ✅ ; lot 4 HUD visuel ✅ ; **1018** tests verts |
-| **Découpage** | **6a** — map REST jouable ✅ · **6b** — WebSocket temps réel ([`BRIEF_LOT6B_WEBSOCKET.md`](BRIEF_LOT6B_WEBSOCKET.md)) · **6c** (optionnel) — polish visuel Figma |
+| **Découpage** | **6a** — map REST jouable ✅ · **6b** — scène statique Figma ([`BRIEF_LOT6B_SCENE_STATIQUE.md`](BRIEF_LOT6B_SCENE_STATIQUE.md)) · **6c** — WebSocket ([`BRIEF_LOT6C_WEBSOCKET.md`](BRIEF_LOT6C_WEBSOCKET.md)) · **6d** (optionnel) — polish Figma Fable 5 |
 | **Hors périmètre de ce document** | Implémentation commits, détail endpoint WebSocket, auth multi-poste |
 
 **Décisions proposées (à acter §12)** :
 
 - Livrer **6a d'abord** (grille + jetons + `POST …/move` + budget pieds) — **sans WebSocket**.
-- **6b** ensuite — contrat transport distinct, push `PositionChanged` / état combat.
-- **Fable 5** réservé au **6c polish visuel** — **pas** au câblage fonctionnel 6a ni au WebSocket 6b.
+- **6b** ensuite — calque carte + colonne droite maquette (sans assets API).
+- **6c** — WebSocket ; contrat transport distinct.
+- **Fable 5** réservé au **6d polish** optionnel — pas au 6a fonctionnel ni au 6c WS.
 - Aucune règle D&D côté client : pas de prévisualisation de portée/atteignable calculée localement.
-- Conserver l'ADN visuel lot 4 (`MapPlaceholder.svelte`) en **décoration non interactive** sous la grille fonctionnelle (6c ou fin 6a minimal).
+- Conserver l'ADN visuel lot 4 (`MapPlaceholder.svelte`) — réintégré au **6b** (calque fond), pas en 6a minimal.
 
 ---
 
@@ -59,9 +60,9 @@ Le moteur valide distance, budget, case libre, tour courant. Le client **ne calc
 | Clic sur jeton → sélection / focus (cosmétique) | Animation de déplacement le long d'un chemin |
 | Feedback erreurs API (`409`) | Retry automatique silencieux |
 
-### 2.3 WebSocket — lot 6b, pas bloquant pour 6a
+### 2.3 WebSocket — lot 6c, pas bloquant pour 6a
 
-Le banc local fonctionne avec **refresh après action** (pattern actuel de `CombatScreen.svelte`). Le multi-joueur sans rechargement manuel = **6b**.
+Le banc local fonctionne avec **refresh après action** (pattern actuel de `CombatScreen.svelte`). Le multi-joueur sans rechargement manuel = **6c**.
 
 ---
 
@@ -89,13 +90,13 @@ Référence : [`docs/api/CONTRAT.md`](../api/CONTRAT.md) §5.5.
 | `web/src/lib/components/combat/TacticalMap.svelte` | Grille + jetons API |
 | `web/src/lib/screens/CombatScreen.svelte` | Intégration map, budget ft |
 | `MapPlaceholder.svelte` | Archivé — non importé |
-| WebSocket | **Absent** — lot **6b** |
+| WebSocket | **Absent** — lot **6c** |
 
 ### 3.3 Ressources réutilisables
 
 | Élément | Usage lot 6 |
 |---|---|
-| `MapPlaceholder.svelte` | Référence visuelle / extraction décor (6c) ; **remplacé** fonctionnellement par `TacticalMap.svelte` |
+| `MapPlaceholder.svelte` | Référence visuelle / extraction décor (**6b**) ; remplacé fonctionnellement par `TacticalMap.svelte` en 6a |
 | `tokens.css`, composants combat lot 4 | Charte sombre/ambre, cartes, panneaux |
 | `CombatScreen.svelte` | Parent — passe `combat`, `viewer`, callbacks refresh |
 | `fetchCombatState` + `refreshCombat` | Mise à jour post-move identique aux autres actions |
@@ -154,21 +155,17 @@ postCombatMove(
 
 - Clic jeton ennemi/allié → pré-remplit `targetId` du panneau attaque/sort **si** le combattant existe dans `combatants` — **sans** validation de portée client.
 
-### 4.2 Lot 6b — WebSocket temps réel (après 6a)
+### 4.2 Lot 6b — scène statique (après 6a)
 
-**Objectif** : synchroniser la map entre clients sans bouton « Recharger ».
+Voir [`BRIEF_LOT6B_SCENE_STATIQUE.md`](BRIEF_LOT6B_SCENE_STATIQUE.md) — dimensionnement carte, calque fond, colonne droite repliée. **Aucun** mécanisme assets.
 
-| Élément | Intention |
-|---|---|
-| Transport | WebSocket FastAPI (ADR-003, ADR-007) — **contrat distinct** à rédiger avant implémentation |
-| Subscription | Par `combat_id` |
-| Messages minimum | `PositionChanged` ; extension possible `TurnStarted`, état combat partiel |
-| Client | Remplacer / compléter polling manuel sur la route combat |
-| Auth | Hors scope — banc local ; lien viewer → personnage = dette ADR-007 |
+### 4.3 Lot 6c — WebSocket temps réel (après 6b recommandé)
 
-**Ne pas démarrer 6b** dans le même commit que 6a — arbitrage transport requis (§12.3).
+Voir [`BRIEF_LOT6C_WEBSOCKET.md`](BRIEF_LOT6C_WEBSOCKET.md) — synchroniser la map entre clients sans bouton « Recharger ».
 
-### 4.3 Lot 6c — polish visuel Figma (optionnel, agent Fable 5)
+**Ne pas démarrer 6c** sans `CONTRAT_WS.md` acté.
+
+### 4.4 Lot 6d — polish visuel Figma (optionnel, agent Fable 5)
 
 Voir **§8 — Quand utiliser Fable 5**.
 
@@ -196,7 +193,7 @@ Voir **§8 — Quand utiliser Fable 5**.
 | Garder `DEMO_TOKENS` avec positions % | Supprimer du chemin actif ; conserver en commentaire 6c si utile |
 | Afficher `has_movement` | Migrer types + UI vers `movement_remaining_ft` |
 | Modifier Python pour le 6a | Lot front strict — sauf bug API avéré (signaler, ne pas corriger hors périmètre) |
-| WebSocket « minimal » dans 6a | Reporter 6b |
+| WebSocket « minimal » dans 6a | Reporter **6c** |
 | Cacher la map si viewer absent | Positions non filtrées serveur — carte visible, move conditionné au viewer |
 
 ---
@@ -224,24 +221,24 @@ Fable 5 est l'agent cible des briefs **visuels sans changement de contrat** ([`B
 
 | Phase | Agent recommandé | Fable 5 ? |
 |---|---|---|
-| **6a — map REST** | Agent implémentation standard | **Non** — nouveaux types, appel `POST …/move`, logique UX (tour / viewer), remplacement composant |
-| **6b — WebSocket** | Agent implémentation standard | **Non** — plumbing API + client, contrat transport |
-| **6c — polish map** | **Fable 5** | **Oui** — une fois 6a **validé fonctionnellement** |
-| Refonte HUD global (colonnes, journal…) | Fable 5 | **Déjà livré** lot 4 — ne pas refaire |
+| **6a — map REST** | Agent implémentation standard | **Non** |
+| **6b — scène statique** | Agent implémentation standard | **Non** — layout + calque fond |
+| **6c — WebSocket** | Agent implémentation standard | **Non** |
+| **6d — polish map** | **Fable 5** (optionnel) | **Oui** — si écart pixel-perfect après 6b |
+| Refonte HUD global | Fable 5 | **Déjà livré** lot 4 |
 
-### Fable 5 intervient si (6c)
+### Fable 5 intervient si (6d)
 
-- La grille **fonctionne** (jetons réels, move OK) mais l'écart visuel vs maquette Figma / `MapPlaceholder` est trop grand.
-- Mission type : **conserver** le comportement 6a, **transformer** le rendu (textures pierre, cercle rituel en arrière-plan non interactif, jetons, hover, transitions, densité).
-- **Interdit Fable** : ajouter calcul de portée, WebSocket, nouvelles routes, données fictives.
+- Le **6b** est livré mais l'écart pixel-perfect vs maquette reste trop grand.
+- **Interdit Fable** : WebSocket, API, upload assets, règles client.
 
 ### Fable 5 ne pas utiliser quand
 
-- Il faut **brancher l'API** ou **corriger les types** → agent implémentation 6a.
-- Il faut **WebSocket** ou modifier `interfaces/api/` → agent 6b.
-- La map n'affiche pas encore les vraies positions → terminer 6a d'abord.
+- Câblage API / move → **6a**.
+- Calque fond + dimensionnement → **6b**.
+- WebSocket → **6c**.
 
-**Ordre recommandé** : brief acté → **6a agent standard** → validation mainteneur → **6c Fable optionnel** → **6b WebSocket**.
+**Ordre recommandé** : **6a** → **6b** → **6c** → **6d Fable** (optionnel).
 
 ---
 
@@ -262,17 +259,17 @@ web/src/lib/components/combat/*.svelte              (ajustements mineurs si beso
 
 | Zone | Raison |
 |---|---|
-| `jdr_engine/`, `interfaces/api/` | Sauf 6b ou bug bloquant signalé |
+| `jdr_engine/`, `interfaces/api/` | Sauf **6c** WS ou bug bloquant signalé |
 | `bot/` | D2 |
 | `web/package.json` | Sans accord |
 | `ROADMAP.md`, `VISION.md`, ADR | Pilotés mainteneur |
 
-### 6b — extension
+### 6c — extension WebSocket
 
 ```
 interfaces/api/*.py          (endpoint WS)
 web/src/lib/api/combat_ws.ts (indicatif)
-docs/api/CONTRAT_WS.md       (nouveau contrat transport — proposition)
+docs/api/CONTRAT_WS.md       (contrat transport)
 ```
 
 ---
@@ -287,7 +284,7 @@ docs/api/CONTRAT_WS.md       (nouveau contrat transport — proposition)
 6. Move consomme budget — affichage ft à jour.
 7. Checklist §7 passée manuellement.
 8. **Aucun** fichier Python modifié.
-9. Rapport agent : capture ou description de l'écart visuel restant → décision 6c Fable.
+9. Rapport agent : écart visuel restant → décision **6d** Fable optionnel.
 
 **Tests moteur** : delta **0** attendu pour 6a pur front.
 
@@ -300,33 +297,27 @@ docs/api/CONTRAT_WS.md       (nouveau contrat transport — proposition)
 3. **`TacticalMap.svelte`** — grille + jetons (MVP visuel sobre acceptable).
 4. **`CombatScreen.svelte`** — remplacer placeholder, wiring move, chip ft.
 5. **Validation** — build/check + parcours §7.
-6. **(Optionnel 6c)** — brief Fable ou consigne polish reprenant décor lot 4.
+6. **(Optionnel 6d)** — polish Fable si écart maquette après 6b.
 
 ---
 
 ## 12. Arbitrages proposés (validation mainteneur)
 
-### 12.1 Découpage 6a / 6b — **recommandé : accepter**
+### 12.1 Découpage 6a / 6b / 6c — **recommandé : accepter**
 
-**Décision proposée** : 6a livrable seul (REST + refresh). 6b après contrat WS.
-
-**Rejeté** : bloquer 6a en attendant WebSocket.
+**Décision proposée** : 6a seul → **6b** scène statique → **6c** WebSocket après `CONTRAT_WS.md`.
 
 ### 12.2 UX move — **recommandé : clic case, viewer = combattant actif**
 
-**Décision proposée** : clic sur case vide ; move autorisé UI seulement si `viewer.combatant_id === current_combatant_id`.
+**Décision proposée** : move UI seulement si `viewer.combatant_id === current_combatant_id`.
 
-**Alternative** : tout client peut move le combattant du tour (mode « table MJ partagée ») — plus permissif, moins safe multi-poste.
+### 12.3 WebSocket 6c — **recommandé : contrat avant code**
 
-### 12.3 WebSocket 6b — **recommandé : contrat avant code**
+**Décision proposée** : `docs/api/CONTRAT_WS.md` avant implémentation **6c**.
 
-**Décision proposée** : rédiger `docs/api/CONTRAT_WS.md` (ou section CONTRAT) avant implémentation 6b.
+### 12.4 Décor lot 4 — **recommandé : 6b, Fable 6d optionnel**
 
-### 12.4 Décor lot 4 — **recommandé : sobre en 6a, Fable en 6c**
-
-**Décision proposée** : 6a = grille lisible fonctionnelle (cases + jetons). Réintégration pierre / rituel = **6c Fable**, pas critère de done 6a.
-
-**Alternative** : porter le CSS décoratif de `MapPlaceholder` dès 6a — acceptable si **zero régression** fonctionnelle et temps maîtrisé.
+**Décision proposée** : calque fond + dimensionnement = **6b**. Polish pixel-perfect = **6d Fable** si besoin.
 
 ### 12.5 Clic jeton → cible attaque — **recommandé : stretch non bloquant**
 
@@ -354,7 +345,8 @@ docs/api/CONTRAT_WS.md       (nouveau contrat transport — proposition)
 |---|---|
 | Mainteneur | ✅ Périmètre §12 acté (2026-08-13) |
 | Agent 6a | ✅ **Clôturé** août 2026 |
-| Agent 6b | Voir [`BRIEF_LOT6B_WEBSOCKET.md`](BRIEF_LOT6B_WEBSOCKET.md) — après validation mainteneur |
+| Agent 6b | Voir [`BRIEF_LOT6B_SCENE_STATIQUE.md`](BRIEF_LOT6B_SCENE_STATIQUE.md) — après validation mainteneur |
+| Agent 6c | Voir [`BRIEF_LOT6C_WEBSOCKET.md`](BRIEF_LOT6C_WEBSOCKET.md) — après 6b recommandé |
 
 **Phrase de mission 6a (copier-coller)** :
 
@@ -362,9 +354,9 @@ docs/api/CONTRAT_WS.md       (nouveau contrat transport — proposition)
 
 ---
 
-## 15. Instructions d'exécution pour Fable 5 (lot 6c uniquement)
+## 15. Instructions d'exécution pour Fable 5 (lot 6d uniquement)
 
-**Ne lire cette section que si le 6a est validé et qu'un polish visuel est demandé.**
+**Ne lire cette section que si le 6b est validé et qu'un polish pixel-perfect est demandé.**
 
 1. Lire ce brief §8 et `TacticalMap.svelte` + `MapPlaceholder.svelte` (référence décor).
 2. **Ne pas modifier** les appels API ni la logique move / tour / viewer.
@@ -372,6 +364,6 @@ docs/api/CONTRAT_WS.md       (nouveau contrat transport — proposition)
 4. Conserver placeholders §5 pour vision / mesure / brouillard.
 5. `npm run build` + `npm run check` + parcours §7 sans régression.
 
-**Phrase de mission Fable (6c)** :
+**Phrase de mission Fable (6d)** :
 
-> Le lot 6a map tactique fonctionne. Conserve intégralement son comportement et ses appels API ; transforme uniquement le rendu visuel de la carte pour rapprocher la maquette Figma et l'ADN de `MapPlaceholder` (sombre/ambre, décor non interactif). Aucun Python, aucune donnée inventée, aucun calcul de portée. Suis `docs/web/BRIEF_LOT6_MAP_TACTIQUE.md` §8 et §15.
+> Le lot 6b scène statique fonctionne. Conserve intégralement comportement et API ; polish pixel-perfect maquette si écart résiduel. Suis `docs/web/BRIEF_LOT6_MAP_TACTIQUE.md` §8 et §15.
