@@ -8,7 +8,11 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from jdr_engine.domain.combat.combat_state import CombatState, sql_status_from_combat
+from jdr_engine.domain.combat.combat_state import (
+    CombatState,
+    CombatStateVersionError,
+    sql_status_from_combat,
+)
 from jdr_engine.persistence.database import (
     ensure_combats_schema,
     get_connection,
@@ -125,7 +129,7 @@ class SqliteCombatRepository:
             ).fetchone()
         if row is None:
             return None
-        return _row_to_record(row)
+        return _row_to_record_or_close_legacy(self, row)
 
     def list_open(self, *, guild_id: str | None = None) -> list[CombatRecord]:
         """Tous les combats ouverts (``preparing`` ou ``active``)."""
@@ -147,7 +151,12 @@ class SqliteCombatRepository:
                     """,
                     (str(guild_id),),
                 ).fetchall()
-        return [_row_to_record(row) for row in rows]
+        records: list[CombatRecord] = []
+        for row in rows:
+            record = _row_to_record_or_close_legacy(self, row)
+            if record is not None:
+                records.append(record)
+        return records
 
     def get_active_by_channel(
         self,
@@ -172,6 +181,22 @@ class SqliteCombatRepository:
             raise CombatNotFoundError(f"Combat introuvable : id={record.combat_id}.")
         logger.info("Combat sauvegardé : id=%s status=%s", record.combat_id, record.sql_status)
 
+    def _close_incompatible_combat(self, combat_id: int) -> None:
+        """Clôture SQL d'un blob legacy non désérialisable (lot 8 — v2 → v3)."""
+        logger.warning(
+            "Combat id=%s : schema_version incompatible — clôture automatique.",
+            combat_id,
+        )
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE combats
+                SET status = 'ended', updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (combat_id,),
+            )
+
 
 def _row_to_record(row) -> CombatRecord:
     data = json.loads(row["state_json"])
@@ -190,3 +215,19 @@ def _row_to_record(row) -> CombatRecord:
         sql_status=str(row["status"]),
         state=state,
     )
+
+
+def _row_to_record_or_close_legacy(
+    repository: SqliteCombatRepository,
+    row,
+) -> CombatRecord | None:
+    """
+    Désérialise un combat ouvert ; clôture automatique si blob v2 incompatible.
+
+    Libère le lobby sans migration — politique lot 8 (recréer la rencontre).
+    """
+    try:
+        return _row_to_record(row)
+    except CombatStateVersionError:
+        repository._close_incompatible_combat(int(row["id"]))
+        return None

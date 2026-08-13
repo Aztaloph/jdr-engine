@@ -2,6 +2,7 @@
 """Lot 8 — géométrie de combat (grille, mouvement, portée)."""
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -258,6 +259,54 @@ class TestCombatManagerGeometry(unittest.TestCase):
         self.assertEqual(len(placements), 3)
         for pos in placements.values():
             self.assertTrue(grid.contains(pos.x, pos.y))
+
+
+class TestLegacyBlobCompat(unittest.TestCase):
+    """Blobs v2 ouverts — clôture auto pour débloquer le lobby (lot 8)."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = init_database(Path(self._tmpdir.name) / "bot.db")
+        self.repo = SqliteCombatRepository(self.db_path)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_list_open_closes_incompatible_blob(self):
+        import sqlite3
+
+        legacy_blob = json.dumps(
+            {
+                "schema_version": 2,
+                "ruleset_id": "dnd5e",
+                "round_number": 0,
+                "turn_index": 0,
+                "initiative_order": [],
+                "combatants": {},
+                "started_at": None,
+                "ended_at": None,
+                "active_effects": [],
+            }
+        )
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            """
+            INSERT INTO combats (guild_id, channel_id, status, state_json, updated_at)
+            VALUES ('api', 'legacy-ch', 'preparing', ?, datetime('now'))
+            """,
+            (legacy_blob,),
+        )
+        conn.commit()
+        conn.close()
+
+        self.assertEqual(self.repo.list_open(), [])
+
+        conn = sqlite3.connect(self.db_path)
+        status = conn.execute(
+            "SELECT status FROM combats WHERE channel_id = 'legacy-ch'"
+        ).fetchone()[0]
+        conn.close()
+        self.assertEqual(status, "ended")
 
 
 if __name__ == "__main__":
