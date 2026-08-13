@@ -1,5 +1,7 @@
 # Vision produit — JDR Engine
 
+> Ce document décrit une destination à long terme. Il n'autorise aucune implémentation. Il sert uniquement à : choisir le vocabulaire, éviter les impasses architecturales, et arbitrer entre deux options équivalentes en préférant celle qui reste compatible avec la vision. Toute anticipation fonctionnelle est interdite. Si un lot semble exiger d'avancer vers la vision, c'est un point d'arbitrage à me soumettre, pas une autorisation.
+
 > Document fondateur du projet. Il définit la **cible à plusieurs années**, les décisions structurantes arrêtées et la manière dont elles s'articulent avec l'état réel du code.
 >
 > Pour l'avancement détaillé et les lots en cours, voir [`ROADMAP.md`](ROADMAP.md). Pour l'architecture technique de référence, voir [`docs/ARCHITECTURE_V2.md`](docs/ARCHITECTURE_V2.md) et les [ADR](docs/adr/).
@@ -24,6 +26,20 @@ Une **plateforme de JDR en ligne** structurée autour d'un moteur de règles ind
 - une **API** qui expose le moteur à toutes les interfaces (Web d'abord, puis mobile/VTT si pertinent).
 
 Le succès se mesure à une chose : **n'importe qui peut héberger le projet, inviter ses amis et jouer une campagne entière sans payer**.
+
+### Nature du produit — table de jeu virtuelle
+
+Le produit est une **table de jeu virtuelle** permettant de maîtriser une **campagne complète**. La **page principale** est une **scène de jeu**, pas un écran de combat. Le combat est un **mode temporaire** de la scène, déclenché et clos par le MJ. La majorité du temps de jeu se déroule **hors combat** : une carte affichée, sans jetons déplaçables, sans initiative ni budgets d'action.
+
+| Terme | Définition |
+|---|---|
+| **Campagne** | Contient des scènes, des personnages, des assets |
+| **Scène** | Une carte, un état (`hors-combat` / `en combat`) |
+| **Rencontre** | L'état « en combat » d'une scène : initiative, tours, budgets d'action, jetons — pas obligatoire, mais invocable par le MJ |
+| **Mode sandbox** | Préparation d'une scène par le MJ, hors partie |
+| **Mode live** | Scène jouée en partie |
+
+La gestion des assets (upload, calage, échelle, stockage, permissions) et l'éditeur de campagne restent **hors périmètre de ce document** — arbitrages ouverts.
 
 ### Décision structurante — l'avenir est le client Web
 
@@ -130,6 +146,21 @@ Le client Web est **l'interface de jeu principale**. Il consomme l'API et se met
 
 > **Note importante.** Les maquettes ci-dessous proviennent d'une réflexion initialement formulée pour Discord. Elles sont ici **reclassées comme spécification UX du client Web**. Aucune n'est une cible Discord.
 
+### 4.0 Scène de jeu — interface principale
+
+L'écran par défaut du client n'est **pas** le HUD de combat : c'est la **scène** — une carte (ou un plan) dans son état courant. Deux modes d'usage :
+
+| Mode | Usage |
+|---|---|
+| **Sandbox** | Le MJ prépare la scène hors partie (disposition, annotations, réglages) |
+| **Live** | La scène est jouée en session ; les joueurs y accèdent pendant la partie |
+
+**Hors combat** (état majoritaire du temps de jeu) : la scène affiche la carte ; pas de jetons déplaçables par défaut, pas d'initiative, pas de budgets d'action. Les fiches, le roleplay et l'exploration se déroulent autour de cette vue.
+
+**En rencontre** (mode temporaire) : le MJ déclenche le combat sur la scène ; l'interface bascule alors vers le HUD compact (§4.3) — initiative, tours, jetons, ressources. À la clôture, la scène revient à l'état hors combat.
+
+Le client Web actuel (lobby, écran combat, fiche) est une **étape intermédiaire** : il valide le moteur et l'API avant la scène unifiée. Le **lot 6a** (grille depuis l'état, jetons sur positions, clic pour déplacer) reste **compatible** avec cette vision cible — rien à défaire.
+
 ### 4.1 Principe : tableau de bord, pas « fiche Excel »
 
 On n'affiche **jamais tout d'un coup**. La fiche principale ne montre que ce qui sert 90 % du temps ; le reste est accessible par onglets et menus déroulants.
@@ -158,9 +189,9 @@ INT 18 (+4)  SAG 12 (+1)   CHA 10 (+0)
 
 Les onglets restent **au même endroit** ; seul le panneau central change. Le joueur a l'impression d'être dans un menu de jeu.
 
-### 4.3 Vue de combat dédiée (HUD)
+### 4.3 Vue de combat dédiée (HUD — mode rencontre)
 
-Pendant le combat, l'interface bascule sur un **HUD compact** mis à jour automatiquement à chaque tour :
+Pendant une **rencontre** (état « en combat » de la scène), l'interface bascule sur un **HUD compact** mis à jour automatiquement à chaque tour :
 
 ```
 🧙 Aria — Ton tour
@@ -179,7 +210,7 @@ Le MJ dispose d'une vue dédiée : suivi d'initiative, PV/états des PNJ et mons
 
 ### 4.5 Carte & VTT (horizon long)
 
-Une carte dynamique avec jetons, brouillard de guerre et déplacements. Le Compendium prévoit déjà des assets `token.png` par entité. Cette brique est **loin dans la roadmap**, mais les **formats** (assets, positions) sont conçus pour ne pas la bloquer.
+**Hors rencontre**, la scène affiche une carte statique (ou semi-statique) — fond de table, sans mécanique de tour. **En rencontre**, la même scène active les jetons, la grille et les règles spatiales. Le Compendium prévoit déjà des assets `token.png` par entité. Le brouillard de guerre, les obstacles et la ligne de vue viendront avec le modèle de terrain (lots ultérieurs). Les **formats** (assets, positions) sont conçus pour ne pas bloquer cette évolution.
 
 ### 4.6 Confidentialité par défaut
 
@@ -192,6 +223,12 @@ Ce qui était « message éphémère » sur Discord devient la **norme Web** : c
 Le combat est le **gros chantier** identifié dans `ROADMAP.md` (**ÉTAPE 4 — Système de combat complet**). La décision structurante en fixe la nature.
 
 > **Le Combat Engine est une API moteur pure : des fonctions déterministes et des événements. Il ne construit jamais d'interface — ni Discord, ni Web.**
+
+### Vocabulaire — rencontre vs objet combat actuel
+
+Dans la vision cible (§1), une **rencontre** est l'état « en combat » d'une **scène**. L'objet **`CombatState`** / persistance combat du code actuel est conceptuellement une **rencontre** : il deviendra **rattaché à une scène** lors d'un lot dédié qui le nommera explicitement. Aucun lot existant n'autorise cette migration.
+
+Le **déplacement de jetons** devra à terme fonctionner **hors rencontre** — uniquement si le MJ l'a autorisé sur la scène. Cette évolution nécessitera également un **lot dédié**. Le lot **6a** livré (grille depuis l'état, jetons sur positions, clic pour déplacer) reste valide et compatible avec la vision cible.
 
 ### Ce que le Combat Engine fait
 
@@ -239,7 +276,7 @@ La règle de partage est nette : **le Web affiche et joue le combat, Discord se 
 Ces principes s'appliquent au client Web (interface de jeu) ; Discord n'est plus concerné.
 
 1. **Détail progressif.** Montrer l'essentiel, révéler le reste à la demande. Jamais de « mur d'informations ».
-2. **Contexte avant tout.** L'interface s'adapte à la situation : exploration ≠ combat. Les actions proposées sont celles qui ont du sens ici et maintenant.
+2. **Contexte avant tout.** L'interface s'adapte à la situation : **scène hors combat** ≠ **rencontre**. Les actions proposées sont celles qui ont du sens ici et maintenant.
 3. **Deux vues pour deux usages.** Fiche complète pour consulter, HUD compact pour agir en combat.
 4. **Intégrité des stats visible.** L'UI ne propose que des **choix encadrés** (création, montée de niveau) ; jamais d'édition libre d'une valeur dérivée. Ce principe moteur devient une garantie ressentie par le joueur.
 5. **Confidentialité par défaut.** Chacun voit ses informations ; la table ne voit que le public ; le MJ voit tout.
@@ -365,6 +402,15 @@ Traçabilité des choix arrêtés et, surtout, des **pistes écartées**, afin q
 | D6 | **Le premium vend du confort et du contenu, pas des possibilités.** | Modèle VS Code / Home Assistant ; financement sain. |
 | D7 | **Moteur prioritaire ; client web en parallèle ; portage 2024 en dernier.** | En arbitrage moteur vs client, le moteur tranche. Depuis l'abandon de Discord, le retour visuel fait partie de la boucle de vérification : le Web progresse en parallèle, sans dicter d'API au seul motif de simplifier le front. |
 | D8 | **Les maquettes (tableau de bord, onglets, HUD) sont des specs UX du client Web.** | Elles décrivent la bonne UX, sur la bonne plateforme. |
+| D9 | **La page principale est la scène de jeu ; le combat est un mode temporaire (rencontre).** | Une campagne se joue majoritairement hors combat ; le HUD combat est un overlay invocable par le MJ. |
+
+### Dette de conception assumée (scène / rencontre)
+
+| Dette | Statut | Lot futur |
+|---|---|---|
+| Objet combat actuel = rencontre non rattachée à une scène | Assumée | Lot dédié (nom explicite requis) |
+| Déplacement de jetons hors rencontre (décision MJ) | Assumée | Lot dédié (nom explicite requis) |
+| Lot 6a (map REST, positions API) | **Compatible** — rien à défaire | — |
 
 ### Pistes écartées
 

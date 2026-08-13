@@ -156,6 +156,7 @@ Tu t'arrêtes **uniquement** si :
 3. Une règle **SRD** est ambiguë ou absente du compendium, et l'interpréter engage le moteur.
 4. Le lot **contredit** un choix architectural antérieur.
 5. Un test existant échoue pour une **divergence de conception**, pas un simple bug.
+6. Le lot en cours **ancre une décision incompatible avec `VISION.md`** (vocabulaire scène/rencontre, scène comme page principale, mode sandbox/live).
 
 Sinon : trancher seul, documenter le choix dans le commit. Ne pas s'arrêter pour validation esthétique ni pour un point perfectible.
 
