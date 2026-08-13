@@ -1023,7 +1023,12 @@ class TestApiV1CombatCast(unittest.TestCase):
             choices={
                 "spellcasting": {
                     "cantrips_known": ["fire_bolt"],
-                    "spells_prepared": ["magic_missile", "shield", "scorching_ray"],
+                    "spells_prepared": [
+                        "burning_hands",
+                        "magic_missile",
+                        "shield",
+                        "scorching_ray",
+                    ],
                     "slots_used": {},
                 }
             },
@@ -1262,9 +1267,96 @@ class TestApiV1CombatCast(unittest.TestCase):
         viewer = response.json()["viewer"]
         self.assertEqual(viewer["combatant_id"], wizard_id)
         self.assertIn("fire_bolt", viewer["castable_spells"])
+        self.assertIn("burning_hands", viewer["castable_spells"])
         self.assertIn("magic_missile", viewer["castable_spells"])
         self.assertIn("scorching_ray", viewer["castable_spells"])
         self.assertEqual(viewer["castable_reaction_spells"], [])
+
+    def test_post_cast_fire_bolt(self) -> None:
+        state = self._create_and_activate(channel_id="cast-fire-bolt")
+        combat_id = state["combat_id"]
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+        target_cid = self._combatant_for_character(state, self.cleric.id)
+        hp_before = state["combatants"][target_cid]["hp_current"]
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.wizard.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": wizard_cid,
+                "spell_id": "fire_bolt",
+                "target_ids": [target_cid],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        target = response.json()["combatants"][target_cid]
+        self.assertLess(target["hp_current"], hp_before)
+        caster = response.json()["combatants"][wizard_cid]
+        self.assertFalse(caster["action_budget"]["has_action"])
+
+    def test_post_cast_burning_hands_save(self) -> None:
+        state = self._create_and_activate(channel_id="cast-burning-hands")
+        combat_id = state["combat_id"]
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+        target_cid = self._combatant_for_character(state, self.cleric.id)
+        hp_before = state["combatants"][target_cid]["hp_current"]
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.wizard.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        viewer = self.client.get(
+            f"/v1/combats/{combat_id}",
+            params={"viewer": self.wizard.id},
+        )
+        self.assertIn("burning_hands", viewer.json()["viewer"]["castable_spells"])
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": wizard_cid,
+                "spell_id": "burning_hands",
+                "target_ids": [target_cid],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        target = response.json()["combatants"][target_cid]
+        self.assertLess(target["hp_current"], hp_before)
+
+    def test_post_cast_shield_on_own_turn_rejected(self) -> None:
+        state = self._create_and_activate(channel_id="cast-shield-own-turn")
+        combat_id = state["combat_id"]
+        wizard_cid = self._combatant_for_character(state, self.wizard.id)
+
+        while state["combatants"][state["initiative_order"][state["turn_index"]]][
+            "character_id"
+        ] != self.wizard.id:
+            advance = self.client.post(f"/v1/combats/{combat_id}/advance-turn")
+            self.assertEqual(advance.status_code, 200)
+            state = advance.json()
+
+        response = self.client.post(
+            f"/v1/combats/{combat_id}/cast",
+            json={
+                "caster_id": wizard_cid,
+                "spell_id": "shield",
+                "target_ids": [],
+            },
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(
+            response.json()["error"]["code"],
+            "NOT_COMBATANT_TURN",
+        )
 
     def test_post_cast_magic_missile_auto_hit(self) -> None:
         state = self._create_and_activate(channel_id="cast-magic-missile")
