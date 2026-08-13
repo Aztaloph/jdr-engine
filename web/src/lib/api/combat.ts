@@ -394,6 +394,54 @@ export async function fetchCombatJournal(combatId: string): Promise<CombatJourna
   return result.events ?? [];
 }
 
+export interface MoveCombatantRequest {
+  combatant_id: string;
+  x: number;
+  y: number;
+}
+
+export async function postCombatMove(
+  combatId: string,
+  body: MoveCombatantRequest,
+  viewer?: string,
+): Promise<CombatState> {
+  const id = combatId.trim();
+  if (!id) {
+    throw { kind: "network", message: "combat_id requis." } satisfies LoadError;
+  }
+
+  const params = new URLSearchParams();
+  const viewerTrimmed = viewer?.trim();
+  if (viewerTrimmed) {
+    params.set("viewer", viewerTrimmed);
+  }
+  const query = params.toString();
+  const url = `/v1/combats/${encodeURIComponent(id)}/move${query ? `?${query}` : ""}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (cause) {
+    throw {
+      kind: "network",
+      message:
+        cause instanceof Error
+          ? cause.message
+          : "API injoignable — vérifiez qu'uvicorn tourne sur le port 8000.",
+    } satisfies LoadError;
+  }
+
+  const result = await parseJsonResponse<CombatState>(res);
+  if ("kind" in result) {
+    throw result;
+  }
+  return result;
+}
+
 export async function activateCombat(combatId: string): Promise<CombatState> {
   const id = combatId.trim();
   if (!id) {

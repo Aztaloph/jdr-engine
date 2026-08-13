@@ -26,7 +26,20 @@ export interface ActionBudget {
   has_action: boolean;
   has_bonus_action: boolean;
   has_reaction: boolean;
-  has_movement: boolean;
+  /** Pieds de mouvement restants pour le tour (lot 8). */
+  movement_remaining_ft?: number;
+}
+
+/** Case de grille — aligné sur ``GridPosition.to_dict`` moteur. */
+export interface GridPosition {
+  x: number;
+  y: number;
+}
+
+/** Dimensions de la carte — aligné sur ``CombatGrid.to_dict`` moteur. */
+export interface CombatGrid {
+  width: number;
+  height: number;
 }
 
 /**
@@ -54,6 +67,8 @@ export interface Combatant {
   class_name?: string;
   level?: number;
   race_name?: string;
+  /** Présent si combat actif et géométrie initialisée (lot 8). */
+  position?: GridPosition | null;
 }
 
 export interface ActiveEffect {
@@ -108,6 +123,8 @@ export interface CombatState {
   /** Ordre d'initiative — liste de ``combatant_id`` (pas de ``character_id``). */
   initiative_order: string[];
   combatants: Record<string, Combatant>;
+  /** Présent si combat actif — absent en ``preparing``. */
+  grid?: CombatGrid | null;
   active_effects: ActiveEffect[];
   started_at: string | null;
   ended_at: string | null;

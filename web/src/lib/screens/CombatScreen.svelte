@@ -7,6 +7,7 @@
     healCombatant,
     isLoadError,
     postCombatCast,
+    postCombatMove,
     postWeaponAttack,
     syncCombatantFromSheet,
   } from "../api/combat";
@@ -36,7 +37,7 @@
   import CharacterPortrait from "../components/combat/CharacterPortrait.svelte";
   import Icon from "../components/combat/Icon.svelte";
   import JournalItem from "../components/combat/JournalItem.svelte";
-  import MapPlaceholder from "../components/combat/MapPlaceholder.svelte";
+  import TacticalMap from "../components/combat/TacticalMap.svelte";
   import DiceBar from "../components/combat/DiceBar.svelte";
 
   type JournalEntry = {
@@ -461,6 +462,34 @@
     }
   }
 
+  async function handleMapMove(x: number, y: number) {
+    if (!combat?.viewer?.combatant_id || !isViewerTurn || loading) {
+      return;
+    }
+    error = null;
+    loading = true;
+    const combatantId = combat.viewer.combatant_id;
+    try {
+      applyCombatState(
+        await postCombatMove(
+          combatId,
+          { combatant_id: combatantId, x, y },
+          viewer,
+        ),
+      );
+    } catch (e) {
+      error = isLoadError(e) ? e : { kind: "network", message: String(e) };
+    } finally {
+      loading = false;
+    }
+  }
+
+  function handleMapSelectTarget(combatantId: string) {
+    if (combat?.combatants[combatantId]) {
+      targetId = combatantId;
+    }
+  }
+
   async function launchSpell(spellId: string) {
     if (!canCastSpell || !combat?.viewer?.combatant_id) {
       return;
@@ -711,7 +740,15 @@
       </div>
 
       <div class="col col-center">
-        <MapPlaceholder />
+        {#if combat}
+          <TacticalMap
+            {combat}
+            {viewer}
+            {loading}
+            onMove={handleMapMove}
+            onSelectTarget={handleMapSelectTarget}
+          />
+        {/if}
       </div>
 
       <div class="col col-right">
@@ -760,7 +797,13 @@
                 <span class="budget-chip" class:used={!b.has_action}>Action</span>
                 <span class="budget-chip" class:used={!b.has_bonus_action}>Bonus</span>
                 <span class="budget-chip" class:used={!b.has_reaction}>Réaction</span>
-                <span class="budget-chip" class:used={!b.has_movement}>Mouvement</span>
+                <span
+                  class="budget-chip"
+                  class:used={b.movement_remaining_ft === 0}
+                >
+                  Mouvement{#if b.movement_remaining_ft !== undefined}
+                    <span class="mono"> {b.movement_remaining_ft} ft</span>{/if}
+                </span>
               </div>
             {:else}
               <p class="hint">Budget d'action non exposé pour ce combattant.</p>
