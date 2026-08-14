@@ -39,7 +39,7 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 |---|---|
 | Tests unitaires | **1026** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
 | Sorts curated (YAML) | **42** (`compendium/dnd5e/entries/spells/*/definition.yaml`) |
-| Commit HEAD | `d4f6415` |
+| Commit HEAD | `e69a77c` |
 | Dernière sync auto | 2026-08-14 |
 <!-- ROADMAP-AUTO:END -->
 
@@ -98,7 +98,7 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
   - [x] **ADR-005 — Fin de rencontre** : sync PV/concentration à `close_combat`, auto-close `advance_turn`, encounter-scoped conditions.
   - [x] **ADR-006 — Effets actifs unifiés** (doc `c48d9b6` ; impl. A+B+C `c09a89b`→`94156f4`, poussé sur `main`) : `ActiveEffect`, horloge `round_number`, registre `rules/effects/`, migration `bless`/`hunters_mark`, blob `COMBAT_STATE_VERSION` **2**, adaptateurs `collect_*`, persistance consolidée.
   - [x] **C8 — Géométrie de combat (lot 8 moteur + API)** — ✅ **clôturé août 2026** — positions, grille (`grid` dans l'état), distance/portée, `movement_remaining_ft`, `POST …/move`, validation spatiale attaques/sorts, blob **v3**. Brief : [`docs/combat/BRIEF_LOT8_GEOMETRIE.md`](docs/combat/BRIEF_LOT8_GEOMETRIE.md). *Hors périmètre* : LoS, pathfinding, brouillard de guerre. **Prérequis lot 6 front (map tactique).**
-- [ ] **ÉTAPE 6 : API (REST + WebSocket)** — 🚧 **REST combat + personnage livrés** (`docs/api/CONTRAT.md`, `interfaces/api/`) : cycle de vie combat, attaque fusionnée, cast overlay, `advance-turn`, clôture, viewer. **Reste ouvert** : WebSocket map (lot 6 front), auth, push EventBus temps réel.
+- [ ] **ÉTAPE 6 : API (REST + WebSocket)** — 🚧 **REST combat + personnage livrés** (`docs/api/CONTRAT.md`, `interfaces/api/`) : cycle de vie combat, attaque fusionnée, cast overlay, `advance-turn`, clôture, viewer, **WebSocket map (lot 6c ✅)**. **Reste ouvert** : auth multi-poste (lot B1), push journal WS.
 - [ ] **ÉTAPE 7 : Client Web (interface de jeu principale)** — 🚧 **en cours** ([ADR-007](docs/adr/ADR-007-stack-client-web.md)). Découpage : section **Piste client Web** ci-dessous. Spécification UX : VISION.md §4.
 - [ ] **ÉTAPE 8 : Discord minimal** — 🔜 nouveau (ordre 5). Réduction au social : chat, lancement de partie, `/personnage` → Web, notifications (via EventBus). Voir VISION.md §3.
 - [ ] **ÉTAPE 9 : Contenu & carte** — 🔭 long terme (ordre 6). Campagnes, packs d'assets, carte/VTT, base marketplace. Voir VISION.md §4.5 et §8.
@@ -122,9 +122,9 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
   - **Hors périmètre lot 4 (volontaire)** : préparation des sorts, panneau d'actions complet (réaction, compétences, etc.) — nécessite backend + lots fonctionnels dédiés ; le HUD expose la place visuelle via placeholders.
 - [x] **Lot 5 — Landing page publique** — direction artistique produit (`LandingScreen.svelte`, route `/`). Horizon marketing, hors combat.
 - [x] **Lot 7 — MVP combat jouable (web + API)** — ✅ **clôturé août 2026** — boucle de session sans map tactique : sorts action / bonus / réaction / soins branchés (`castable_*` viewer), sélecteur de cible HUD, journal clarifié, parcours **clerc**, **mage** et **barde** validés (tests moteur + API). *Hors périmètre volontaire* : compétences combat (placeholder), `bless` multi-cibles UI, map (lot 6).
-- [ ] **Lot 6 — Map tactique (front + temps réel)** — 🔜 **après lot 8 moteur** — WebSocket, grille interactive, jetons sur positions API (`grid`, `position`, `POST …/move`). Remplace les jetons décoratifs du lot 4. Ne pas livrer une map vide avant le contrat géométrie lot 8.
+- [x] **Lot 6 — Map tactique (front + temps réel)** — ✅ **clôturé août 2026** — 6a map REST, 6b scène statique, 6c WebSocket multi-onglets, polish HUD ; 6d Figma optionnel non livré. Briefs : [`BRIEF_LOT6_MAP_TACTIQUE.md`](docs/web/BRIEF_LOT6_MAP_TACTIQUE.md), [`BRIEF_LOT6C_WEBSOCKET.md`](docs/web/BRIEF_LOT6C_WEBSOCKET.md). Commits : `81fc9e6`, `6f26466`, `d4f6415`, `e69a77c`.
 
-**Prochain jalon** : **lot 6 front — map tactique** (consomme API lot 8) ; lots **B3** / **ÉTAPE 6 WebSocket** possibles en parallèle.
+**Prochain jalon** : **lot B1 auth** (ÉTAPE 6 — authentification & autorisation API) — brief [`docs/api/BRIEF_LOT_B1_AUTH.md`](docs/api/BRIEF_LOT_B1_AUTH.md) ; lots **B3** moteur sorts possibles en parallèle.
 
 ---
 
@@ -165,7 +165,7 @@ Tous les jalons P2a–P2h sont livrés. Grimoire mage : consultable via **`/pers
 
 Chaîne validée : ASI **5 paliers** (4/8/12/16/19), cap **niv. 20** full casters, cantrip scaling 2d10/3d10/4d10, UI **`AsiDistributionView`**.
 
-**Prochain jalon** : **lot 6 front — map tactique** (consomme API lot 8) ; lots **B3** / **ÉTAPE 6 WebSocket** possibles en parallèle.
+**Prochain jalon** : **lot B1 auth** (ÉTAPE 6) — voir [`docs/api/BRIEF_LOT_B1_AUTH.md`](docs/api/BRIEF_LOT_B1_AUTH.md).
 
 ---
 
