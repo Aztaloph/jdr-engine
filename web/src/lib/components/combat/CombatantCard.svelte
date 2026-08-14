@@ -26,19 +26,14 @@
 </script>
 
 <article class="card" class:is-turn={isTurn} class:is-inactive={!combatant.is_active}>
-  {#if isTurn}
-    <span class="turn-ribbon">Tour actif</span>
-  {/if}
-
   <div class="card-row">
-    <CharacterPortrait name={combatant.display_name} size={46} active={isTurn} />
+    <CharacterPortrait name={combatant.display_name} size={42} active={isTurn} />
     <div class="card-id">
       <strong class="card-name">{combatant.display_name}</strong>
       <span class="card-sub">
-        {#if combatant.initiative_total !== undefined}
-          <span class="sub-item" title="Initiative">
-            <Icon name="flag" size={11} />
-            {combatant.initiative_total}
+        {#if combatant.class_name != null && combatant.level != null}
+          <span class="sub-item">
+            {combatant.class_name} — niveau {combatant.level}
           </span>
         {/if}
         {#if !combatant.is_active}
@@ -47,21 +42,12 @@
       </span>
     </div>
     {#if combatant.ac !== undefined}
-      <span class="ac-chip" title="Classe d'armure">
-        <Icon name="shield" size={12} />
-        {combatant.ac}
-      </span>
+      <span class="ac-chip" title="Classe d'armure">CA {combatant.ac}</span>
     {/if}
   </div>
 
   {#if combatant.hp_current !== undefined}
     <div class="hp-block">
-      <div class="hp-line">
-        <span class="hp-label">PV</span>
-        <span class="hp-value mono">
-          {combatant.hp_current}{combatant.hp_max !== undefined ? ` / ${combatant.hp_max}` : ""}
-        </span>
-      </div>
       {#if hpRatio !== null}
         <div class="hp-bar">
           <div
@@ -71,6 +57,11 @@
           ></div>
         </div>
       {/if}
+      <span class="hp-value mono">
+        {combatant.hp_current}{combatant.hp_max !== undefined
+          ? `/${combatant.hp_max}`
+          : ""} PV
+      </span>
     </div>
   {/if}
 
@@ -113,32 +104,15 @@
   }
 
   .card.is-turn {
-    border-color: rgb(245 158 11 / 0.55);
-    background:
-      linear-gradient(135deg, rgb(245 158 11 / 0.1), transparent 45%),
-      var(--color-bg-panel);
+    border-color: rgb(245 158 11 / 0.6);
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.03),
-      0 0 18px rgb(245 158 11 / 0.08);
+      0 0 14px rgb(245 158 11 / 0.08);
   }
 
   .card.is-inactive {
     opacity: 0.5;
     filter: saturate(0.4);
-  }
-
-  .turn-ribbon {
-    position: absolute;
-    top: -1px;
-    right: 0.7rem;
-    font-size: 0.58rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #0c0a09;
-    background: var(--color-accent);
-    padding: 0.14rem 0.5rem;
-    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   }
 
   .card-row {
@@ -167,7 +141,7 @@
   .card-sub {
     display: flex;
     gap: 0.55rem;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     color: var(--color-text-muted);
   }
 
@@ -175,6 +149,9 @@
     display: inline-flex;
     align-items: center;
     gap: 0.2rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .sub-item.down {
@@ -187,41 +164,32 @@
 
   .ac-chip {
     flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
+    align-self: flex-start;
     font-family: var(--font-mono);
-    font-size: 0.8rem;
-    color: var(--color-text-secondary);
-    background: var(--color-bg-input);
-    border: 1px solid var(--color-border-default);
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--color-accent);
+    border: 1px solid rgb(245 158 11 / 0.45);
     border-radius: var(--radius-sm);
-    padding: 0.15rem 0.4rem;
+    padding: 0.12rem 0.38rem;
+    background: rgb(245 158 11 / 0.1);
   }
 
   .hp-block {
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    align-items: center;
+    gap: 0.5rem;
   }
 
-  .hp-line {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-  }
-
-  .hp-label {
-    font-size: 0.62rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-text-muted);
+  .hp-bar {
+    flex: 1;
+    min-width: 0;
   }
 
   .hp-value {
-    font-size: 0.82rem;
-    color: var(--color-text-secondary);
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    color: var(--color-text-muted);
   }
 
   .mono {

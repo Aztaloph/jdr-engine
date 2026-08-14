@@ -44,6 +44,7 @@
   import CharacterPortrait from "../components/combat/CharacterPortrait.svelte";
   import Icon from "../components/combat/Icon.svelte";
   import JournalItem from "../components/combat/JournalItem.svelte";
+  import type { JournalNameTone } from "../combat/journalPresentation";
   import TacticalMap from "../components/combat/TacticalMap.svelte";
   import DiceBar from "../components/combat/DiceBar.svelte";
 
@@ -52,6 +53,7 @@
     kind: "attack" | "spell" | "system";
     summary: string;
     detail: string;
+    eventType: string;
     /** Heure locale du client au moment de l'action — cosmétique. */
     time: string;
   };
@@ -246,6 +248,22 @@
       : [],
   );
 
+  /** Teintes des noms dans le journal (viewer = self, autres = ally). */
+  const journalNameTones = $derived.by(() => {
+    const tones = new Map<string, JournalNameTone>();
+    if (!combat) {
+      return tones;
+    }
+    const viewerCid = combat.viewer?.combatant_id;
+    for (const combatant of Object.values(combat.combatants)) {
+      tones.set(
+        combatant.display_name,
+        combatant.combatant_id === viewerCid ? "self" : "ally",
+      );
+    }
+    return tones;
+  });
+
   $effect(() => {
     viewer = initialViewer;
   });
@@ -372,6 +390,7 @@
         kind: entry.kind,
         summary: entry.summary,
         detail: entry.detail,
+        eventType: entry.event_type,
         time: new Date(entry.created_at).toLocaleTimeString("fr-FR", {
           hour: "2-digit",
           minute: "2-digit",
@@ -523,6 +542,7 @@
         kind: "spell",
         summary: `${name} — sorts préparés confirmés`,
         detail: selection.join(", "),
+        eventType: "PreparedSpellsConfirmed",
       });
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
@@ -662,6 +682,7 @@
         kind: "system",
         summary: `${combatantName(tgt, next)} réanimé (PV max)`,
         detail: "Outil MJ · heal",
+        eventType: "DmHeal",
       });
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
@@ -692,6 +713,7 @@
           viewer.trim() === charId
             ? "Préparation de sorts disponible si classe préparateur."
             : `Sélectionnez le viewer ${charId.slice(0, 8)}… pour préparer les sorts.`,
+        eventType: "LongRest",
       });
     } catch (e) {
       error = isLoadError(e) ? e : { kind: "network", message: String(e) };
@@ -901,6 +923,7 @@
       </div>
 
       <div class="col col-right">
+        <div class="right-slot right-slot-sheet">
         <Panel title="Fiche active" icon="user">
           {#if sheetCombatant}
             <div class="active-head">
@@ -909,15 +932,7 @@
                 <strong class="active-name">{sheetCombatant.display_name}</strong>
                 <span class="active-sub">
                   {#if sheetCombatant.class_name != null && sheetCombatant.level != null}
-                    {sheetCombatant.race_name
-                      ? `${sheetCombatant.race_name} · `
-                      : ""}{sheetCombatant.class_name} · niv. {sheetCombatant.level}
-                  {/if}
-                  {#if viewer.trim() && combat?.viewer?.combatant_id && combat.current_combatant_id !== combat.viewer.combatant_id && currentTurnCombatant}
-                    {#if sheetCombatant.class_name != null && sheetCombatant.level != null}
-                      ·
-                    {/if}
-                    Tour de {currentTurnCombatant.display_name}
+                    {sheetCombatant.class_name} · niveau {sheetCombatant.level}
                   {/if}
                 </span>
               </div>
@@ -971,9 +986,14 @@
             {#if hasAbilityBlock(sheetCombatant)}
               <div class="abilities">
                 {#each COMBAT_ABILITY_IDS as abilityId (abilityId)}
-                  <div class="ability">
+                  <div
+                    class="ability"
+                    title={abilityLabel(sheetCombatant, abilityId)}
+                  >
                     <span class="ability-name">
-                      {abilityLabel(sheetCombatant, abilityId)}
+                      {abilityLabel(sheetCombatant, abilityId)
+                        .slice(0, 3)
+                        .toUpperCase()}
                     </span>
                     <span class="ability-value">
                       {sheetCombatant.ability_scores?.[abilityId] ?? "—"}
@@ -995,9 +1015,16 @@
             <p class="hint">Aucun tour actif.</p>
           {/if}
         </Panel>
+        </div>
 
+        <div
+          class="right-slot right-slot-actions"
+          class:is-expanded={openActionMenu !== null}
+        >
         <Panel title="Actions rapides" icon="sword">
           {#if combat.status === "active"}
+            <div class="actions-panel">
+            <div class="action-menus">
             <div class="action-menu" class:menu-open={openActionMenu === "attack"}>
               <button
                 type="button"
@@ -1007,7 +1034,6 @@
               >
                 <Icon name="sword" size={13} />
                 <span>Attaque d'arme</span>
-                <span class="menu-chevron"><Icon name="chevron" size={13} /></span>
               </button>
               {#if openActionMenu === "attack"}
                 <div class="action-menu-body action-block">
@@ -1059,7 +1085,6 @@
               >
                 <Icon name="sparkle" size={13} />
                 <span>Lancer un sort</span>
-                <span class="menu-chevron"><Icon name="chevron" size={13} /></span>
               </button>
               {#if openActionMenu === "spell"}
                 <div class="action-menu-body action-block">
@@ -1266,7 +1291,6 @@
               >
                 <Icon name="wand" size={13} />
                 <span>Outils MJ (banc de test)</span>
-                <span class="menu-chevron"><Icon name="chevron" size={13} /></span>
               </button>
               {#if openActionMenu === "dm"}
                 <div class="action-menu-body action-block">
@@ -1296,6 +1320,8 @@
               {/if}
             </div>
 
+            </div>
+
             <button type="button" class="btn-skill" disabled title="En développement">
               <Icon name="wand" size={13} />
               Compétences
@@ -1311,13 +1337,19 @@
               <Icon name="next" size={14} />
               Fin de tour
             </button>
+            </div>
           {:else if combat.status === "preparing"}
             <p class="hint">Combat en préparation — activez depuis le lobby.</p>
           {:else}
             <p class="hint">Combat terminé.</p>
           {/if}
         </Panel>
+        </div>
 
+        <div
+          class="right-slot right-slot-journal"
+          class:is-compacted={openActionMenu !== null}
+        >
         <Panel title="Journal de combat" icon="scroll" badge={`${journal.length}`}>
           {#if journal.length === 0}
             <p class="hint journal-empty">
@@ -1331,12 +1363,15 @@
                   kind={entry.kind}
                   summary={entry.summary}
                   detail={entry.detail}
+                  eventType={entry.eventType}
                   time={entry.time}
+                  nameTones={journalNameTones}
                 />
               {/each}
             </ol>
           {/if}
         </Panel>
+        </div>
       </div>
     </div>
     {/key}
@@ -1352,6 +1387,7 @@
     gap: var(--space-md);
     min-height: 100vh;
     padding: var(--space-md) var(--space-md) var(--space-lg);
+    scrollbar-gutter: stable;
     background:
       radial-gradient(ellipse 60% 40% at 50% 0%, rgb(245 158 11 / 0.04), transparent 70%),
       linear-gradient(rgb(255 255 255 / 0.008) 1px, transparent 1px),
@@ -1371,6 +1407,7 @@
     align-items: center;
     gap: var(--space-md) var(--space-lg);
     flex-wrap: wrap;
+    flex-shrink: 0;
     padding: 0.5rem 0.9rem;
     border: 1px solid var(--color-border-subtle);
     border-radius: var(--radius-lg);
@@ -1580,12 +1617,18 @@
   /* ---- grille trois colonnes ---- */
 
   .hud-grid {
+    --hud-col-left: 280px;
+    --hud-col-right: 300px;
     display: grid;
-    grid-template-columns: minmax(260px, 305px) minmax(0, 1fr) minmax(300px, 355px);
+    grid-template-columns: var(--hud-col-left) minmax(0, 1fr) var(--hud-col-right);
     gap: var(--space-md);
     align-items: stretch;
-    flex: 1;
+    flex: 1 1 0;
     min-height: 0;
+  }
+
+  .combat-screen :global(.dice-bar) {
+    flex-shrink: 0;
   }
 
   .col {
@@ -1593,6 +1636,111 @@
     flex-direction: column;
     gap: var(--space-md);
     min-width: 0;
+    min-height: 0;
+  }
+
+  .col-left {
+    width: var(--hud-col-left);
+    max-width: var(--hud-col-left);
+  }
+
+  .col-right {
+    width: var(--hud-col-right);
+    max-width: var(--hud-col-right);
+    overflow: hidden;
+  }
+
+  /* Colonne droite — répartition verticale : fiche fixe, actions flexibles, journal compressible. */
+  .right-slot-sheet {
+    flex: 0 0 auto;
+  }
+
+  .right-slot-actions {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .right-slot-actions.is-expanded {
+    flex: 1 1 0;
+    min-height: 7rem;
+  }
+
+  .right-slot-actions.is-expanded :global(.panel) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .right-slot-actions.is-expanded :global(.panel-body) {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .right-slot-journal {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .right-slot-journal.is-compacted {
+    flex: 0 1 auto;
+    max-height: min(10rem, 24%);
+  }
+
+  .right-slot-journal :global(.panel) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .right-slot-journal :global(.panel-body) {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Desktop : HUD plein écran — pas de scroll page ni colonne droite globale. */
+  @media (min-width: 1081px) {
+    .combat-screen {
+      height: 100vh;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .col-left {
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .col-left::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+
+    .col-right {
+      overflow: hidden;
+    }
+
+    .col-center {
+      min-height: 0;
+    }
   }
 
   .col-center {
@@ -1815,40 +1963,43 @@
 
   .abilities {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 0.3rem;
-    padding-top: 0.5rem;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.25rem;
+    padding-top: 0.55rem;
     border-top: 1px solid var(--color-border-subtle);
   }
 
   .ability {
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.05rem;
-    padding: 0.3rem 0.1rem;
+    gap: 0.12rem;
+    padding: 0.38rem 0.1rem;
     border: 1px solid var(--color-border-subtle);
     border-radius: var(--radius-sm);
-    background: var(--color-bg-panel);
+    background: rgb(0 0 0 / 0.2);
   }
 
   .ability-name {
     font-size: 0.56rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     color: var(--color-text-muted);
   }
 
   .ability-value {
     font-family: var(--font-display);
-    font-size: 0.85rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1;
     color: var(--color-text-primary);
   }
 
   .ability-mod {
     font-family: var(--font-mono);
-    font-size: 0.68rem;
-    color: var(--color-text-muted);
+    font-size: 0.66rem;
+    color: var(--color-accent);
   }
 
   .abilities-hidden {
@@ -1884,63 +2035,107 @@
 
   /* ---- accordéon actions rapides ---- */
 
+  .actions-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .right-slot-actions.is-expanded .actions-panel {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .right-slot-actions.is-expanded .actions-panel::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  .action-menus {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+
   .action-menu {
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--color-border-subtle);
+    min-width: 0;
     border-radius: var(--radius-md);
-    background: var(--color-bg-input);
     overflow: hidden;
-  }
-
-  .action-menu.menu-open {
-    border-color: rgb(245 158 11 / 0.45);
   }
 
   .action-menu-btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
     width: 100%;
-    padding: 0.55rem 0.7rem;
-    font-size: 0.74rem;
+    min-width: 0;
+    padding: 0.62rem 0.75rem;
+    font-size: 0.72rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--color-text-secondary);
-    background: transparent;
-    border: none;
+    letter-spacing: 0.07em;
+    color: var(--color-accent-text);
+    background: var(--color-accent);
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-md);
     cursor: pointer;
-    text-align: left;
+    text-align: center;
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
   }
 
   .action-menu-btn :global(svg) {
-    color: var(--color-accent);
-    opacity: 0.85;
+    color: var(--color-accent-text);
+    opacity: 1;
     flex-shrink: 0;
   }
 
-  .action-menu-btn span:first-of-type {
-    flex: 1;
+  .action-menu-btn > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .action-menu-btn:hover {
-    color: var(--color-text);
-    background: rgb(245 158 11 / 0.06);
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
   }
 
-  .menu-chevron {
-    display: inline-flex;
-    transition: rotate 0.15s ease;
+  .action-menu.menu-open .action-menu-btn {
+    color: var(--color-text-primary);
+    background: var(--color-bg-panel);
+    border-color: var(--color-border-default);
+    font-weight: 600;
   }
 
-  .menu-open .menu-chevron {
-    rotate: 180deg;
+  .action-menu.menu-open .action-menu-btn :global(svg) {
+    color: var(--color-accent);
+    opacity: 0.9;
   }
 
   .action-menu-body {
-    padding: 0.6rem 0.7rem 0.7rem;
-    border-top: 1px solid var(--color-border-subtle);
+    min-width: 0;
+    padding: 0.65rem 0.75rem 0.75rem;
+    border: 1px solid rgb(245 158 11 / 0.28);
+    border-top: none;
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    background: rgb(0 0 0 / 0.22);
+  }
+
+  .action-menu.menu-open .action-menu-btn {
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
   }
 
   .attack-form {
@@ -1957,10 +2152,36 @@
   }
 
   .attack-form select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     font-size: 0.84rem;
     text-transform: none;
     letter-spacing: normal;
     font-weight: 400;
+    appearance: none;
+    padding-right: 1.75rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.55rem center;
+  }
+
+  .spell-target-select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 0.35rem 1.75rem 0.35rem 0.45rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgb(148 163 184 / 0.25);
+    background-color: var(--color-surface-elevated);
+    color: var(--color-text);
+    font-size: 0.8rem;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.55rem center;
   }
 
   .btn-strike {
@@ -2015,16 +2236,6 @@
     margin: 0.5rem 0 0.65rem;
     font-size: 0.72rem;
     color: var(--color-text-muted);
-  }
-
-  .spell-target-select {
-    width: 100%;
-    padding: 0.35rem 0.45rem;
-    border-radius: var(--radius-sm);
-    border: 1px solid rgb(148 163 184 / 0.25);
-    background: var(--color-surface-elevated);
-    color: var(--color-text);
-    font-size: 0.8rem;
   }
 
   .spell-reaction-hint {
@@ -2204,20 +2415,31 @@
   }
 
   .btn-skill {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.45rem 0.7rem;
-    font-size: 0.82rem;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+    padding: 0.62rem 0.75rem;
+    font-size: 0.72rem;
     font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
     color: var(--color-text-muted);
     background: var(--color-bg-panel);
-    border: 1px solid var(--color-border-default);
+    border: 1px solid var(--color-border-subtle);
     border-radius: var(--radius-md);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .btn-skill :global(svg) {
+    color: var(--color-accent);
+    opacity: 0.65;
   }
 
   .btn-skill .soon-tag {
-    margin-left: auto;
     font-size: 0.58rem;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -2230,15 +2452,18 @@
   }
 
   .btn-endturn {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.45rem;
+    gap: 0.55rem;
     width: 100%;
-    padding: 0.6rem 0.9rem;
-    font-size: 0.9rem;
+    min-width: 0;
+    flex-shrink: 0;
+    margin-top: 0.15rem;
+    padding: 0.62rem 0.85rem;
+    font-size: 0.72rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-accent);
     background: rgb(245 158 11 / 0.07);
@@ -2267,23 +2492,37 @@
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
-    max-height: 22rem;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-border-default) transparent;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .journal-list::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
 
   /* ---- responsive ---- */
 
   @media (max-width: 1280px) {
     .hud-grid {
-      grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(280px, 320px);
+      --hud-col-left: 260px;
+      --hud-col-right: 280px;
     }
   }
 
   @media (max-width: 1080px) {
     .hud-grid {
       grid-template-columns: 1fr;
+    }
+
+    .col-left,
+    .col-right {
+      width: auto;
+      max-width: none;
     }
 
     .col-center {
