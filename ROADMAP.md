@@ -37,10 +37,10 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 <!-- ROADMAP-AUTO:START -->
 | Indicateur | Valeur |
 |---|---|
-| Tests unitaires | **1026** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
+| Tests unitaires | **1038** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
 | Sorts curated (YAML) | **42** (`compendium/dnd5e/entries/spells/*/definition.yaml`) |
-| Commit HEAD | `e69a77c` |
-| Dernière sync auto | 2026-08-14 |
+| Commit HEAD | `0c54ac6` |
+| Dernière sync auto | 2026-08-19 |
 <!-- ROADMAP-AUTO:END -->
 
 > Métriques ci-dessus : mises à jour automatiquement par `tools/update_roadmap_metrics.py` (hook pre-commit). Les cases à cocher et jalons ci-dessous restent pilotés manuellement.

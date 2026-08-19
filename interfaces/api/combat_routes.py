@@ -11,6 +11,12 @@ from interfaces.api.combat_attack import (
     build_weapon_attack_request,
     build_weapon_damage_notation,
 )
+from interfaces.api.auth.guards import (
+    assert_combatant_owned,
+    assert_viewer_allowed,
+    require_gm,
+    require_session,
+)
 from interfaces.api.combat_scope import (
     assert_characters_available_for_combat,
     resolve_create_scope,
@@ -199,8 +205,25 @@ def register_combat_routes(
         state = combat_service.load_combat(combat_id)
         return _serialize_combat_state(state, viewer=viewer)
 
+    def _resolve_viewer(
+        request: Request,
+        state: CombatState,
+        viewer: str | None,
+    ) -> str | None:
+        session = require_session(request)
+        if session is None:
+            return _validated_viewer(state, viewer)
+        return assert_viewer_allowed(
+            session,
+            viewer,
+            state=state,
+            character_repository=character_repository,
+        )
+
     @app.post("/v1/combats")
-    def create_combat(body: CreateCombatRequest) -> dict:
+    def create_combat(body: CreateCombatRequest, request: Request) -> dict:
+        session = require_session(request)
+        require_gm(session)
         _assert_characters_exist(body.character_ids)
         assert_characters_available_for_combat(
             combat_repository,
@@ -231,7 +254,8 @@ def register_combat_routes(
         return _serialize_combat_state(state, viewer=None)
 
     @app.get("/v1/combats/open")
-    def list_open_combats() -> dict:
+    def list_open_combats(request: Request) -> dict:
+        require_session(request)
         """Index des combats ouverts (banc de test — libère les personnages via close)."""
         entries: list[dict] = []
         for record in combat_repository.list_open():
@@ -252,9 +276,12 @@ def register_combat_routes(
         return {"combats": entries}
 
     @app.get("/v1/combats/{combat_id}")
-    def get_combat(combat_id: int, viewer: str | None = None) -> dict:
+    def get_combat(combat_id: int, request: Request, viewer: str | None = None) -> dict:
+        require_session(request)
         try:
-            return _combat_response(combat_id, viewer=viewer)
+            state = combat_service.load_combat(combat_id)
+            resolved_viewer = _resolve_viewer(request, state, viewer)
+            return _serialize_combat_state(state, viewer=resolved_viewer)
         except CombatNotFoundError as exc:
             raise ApiError(
                 404,
@@ -264,7 +291,8 @@ def register_combat_routes(
             ) from exc
 
     @app.get("/v1/combats/{combat_id}/events")
-    def get_combat_events(combat_id: int) -> dict:
+    def get_combat_events(combat_id: int, request: Request) -> dict:
+        require_session(request)
         try:
             state = combat_service.load_combat(combat_id)
         except CombatNotFoundError as exc:
@@ -286,6 +314,8 @@ def register_combat_routes(
         request: Request,
         body: ActivateCombatRequestBody | None = None,
     ) -> dict:
+        session = require_session(request)
+        require_gm(session)
         rng = getattr(request.app.state, "combat_initiative_rng", None)
         grid_width = 20
         grid_height = 20
@@ -347,6 +377,7 @@ def register_combat_routes(
         request: Request,
         viewer: str | None = None,
     ) -> dict:
+        session = require_session(request)
         try:
             weapon_profile = resolve_weapon(body.weapon_id)
         except UnknownWeaponError as exc:
@@ -367,7 +398,13 @@ def register_combat_routes(
                 details={"combat_id": combat_id},
             ) from exc
 
-        normalized_viewer = _validated_viewer(state, viewer)
+        normalized_viewer = _resolve_viewer(request, state, viewer)
+        assert_combatant_owned(
+            session,
+            state,
+            body.attacker_id,
+            character_repository,
+        )
 
         if body.attacker_id not in state.combatants:
             raise ApiError(
@@ -493,6 +530,7 @@ def register_combat_routes(
         request: Request,
         viewer: str | None = None,
     ) -> dict:
+        session = require_session(request)
         try:
             state = combat_service.load_combat(combat_id)
         except CombatNotFoundError as exc:
@@ -503,7 +541,13 @@ def register_combat_routes(
                 details={"combat_id": combat_id},
             ) from exc
 
-        normalized_viewer = _validated_viewer(state, viewer)
+        normalized_viewer = _resolve_viewer(request, state, viewer)
+        assert_combatant_owned(
+            session,
+            state,
+            body.caster_id,
+            character_repository,
+        )
 
         if body.caster_id not in state.combatants:
             raise ApiError(
@@ -596,8 +640,11 @@ def register_combat_routes(
     def heal_combatant(
         combat_id: int,
         body: CombatHealRequestBody,
+        request: Request,
         viewer: str | None = None,
     ) -> dict:
+        session = require_session(request)
+        require_gm(session)
         try:
             state = combat_service.load_combat(combat_id)
         except CombatNotFoundError as exc:
@@ -608,7 +655,7 @@ def register_combat_routes(
                 details={"combat_id": combat_id},
             ) from exc
 
-        normalized_viewer = _validated_viewer(state, viewer)
+        normalized_viewer = _resolve_viewer(request, state, viewer)
 
         if body.combatant_id not in state.combatants:
             raise ApiError(
@@ -637,9 +684,11 @@ def register_combat_routes(
     def sync_combatant_from_sheet(
         combat_id: int,
         body: CombatSyncRequestBody,
+        request: Request,
         viewer: str | None = None,
     ) -> dict:
         """Réaligne PV/CA du combattant sur la fiche (après repos long, etc.)."""
+        session = require_session(request)
         try:
             state = combat_service.load_combat(combat_id)
         except CombatNotFoundError as exc:
@@ -650,7 +699,13 @@ def register_combat_routes(
                 details={"combat_id": combat_id},
             ) from exc
 
-        normalized_viewer = _validated_viewer(state, viewer)
+        normalized_viewer = _resolve_viewer(request, state, viewer)
+        assert_combatant_owned(
+            session,
+            state,
+            body.combatant_id,
+            character_repository,
+        )
 
         if body.combatant_id not in state.combatants:
             raise ApiError(
@@ -678,8 +733,28 @@ def register_combat_routes(
     def move_combatant(
         combat_id: int,
         body: MoveCombatantRequestBody,
+        request: Request,
         viewer: str | None = None,
     ) -> dict:
+        session = require_session(request)
+        try:
+            state = combat_service.load_combat(combat_id)
+        except CombatNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBAT_NOT_FOUND",
+                "Combat introuvable.",
+                details={"combat_id": combat_id},
+            ) from exc
+
+        normalized_viewer = _resolve_viewer(request, state, viewer)
+        assert_combatant_owned(
+            session,
+            state,
+            body.combatant_id,
+            character_repository,
+        )
+
         try:
             state = combat_service.move_combatant(
                 combat_id,
@@ -730,13 +805,26 @@ def register_combat_routes(
                 "COMBAT_STATUS_INVALID",
                 str(exc),
             ) from exc
-        return _serialize_combat_state(state, viewer=viewer)
+        return _serialize_combat_state(state, viewer=normalized_viewer)
 
     @app.post("/v1/combats/{combat_id}/advance-turn")
     def advance_turn(
         combat_id: int,
+        request: Request,
         viewer: str | None = None,
     ) -> dict:
+        session = require_session(request)
+        require_gm(session)
+        try:
+            state = combat_service.load_combat(combat_id)
+        except CombatNotFoundError as exc:
+            raise ApiError(
+                404,
+                "COMBAT_NOT_FOUND",
+                "Combat introuvable.",
+                details={"combat_id": combat_id},
+            ) from exc
+        resolved_viewer = _resolve_viewer(request, state, viewer)
         try:
             state = combat_service.advance_turn(combat_id)
         except CombatNotFoundError as exc:
@@ -752,10 +840,12 @@ def register_combat_routes(
                 "COMBAT_STATUS_INVALID",
                 str(exc),
             ) from exc
-        return _serialize_combat_state(state, viewer=viewer)
+        return _serialize_combat_state(state, viewer=resolved_viewer)
 
     @app.post("/v1/combats/{combat_id}/close")
-    def close_combat(combat_id: int) -> dict:
+    def close_combat(combat_id: int, request: Request) -> dict:
+        session = require_session(request)
+        require_gm(session)
         try:
             state = combat_service.close_combat(combat_id)
         except CombatNotFoundError as exc:

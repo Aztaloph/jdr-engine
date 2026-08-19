@@ -75,9 +75,34 @@ Toutes les erreurs 4xx/5xx métier renvoient :
 
 Catalogue complet : `docs/api/CONTRAT.md` §3.3.
 
+## Authentification (lot B1 — optionnelle)
+
+Par défaut l'auth est **désactivée** (`JDR_API_AUTH` absent ou `0`) — comportement banc local inchangé.
+
+Pour tester le multi-poste :
+
+```powershell
+set JDR_API_AUTH=1
+venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
+```
+
+Connexion dev (client `#/login` ou API) :
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/auth/dev-login ^
+  -H "Content-Type: application/json" ^
+  -d "{\"user_id\":\"owner_alice\",\"role\":\"player\"}"
+```
+
+Réponse : `{ "token", "expires_at", "user_id", "role" }`. En-tête suivant : `Authorization: Bearer <token>`.
+
+WebSocket : `WS /v1/combats/{id}/ws?token=<token>&viewer=<character_id>` — fermeture **`4401`** si token absent/invalide.
+
+Brief complet : `docs/api/BRIEF_LOT_B1_AUTH.md`.
+
 ## Limites connues
 
 - Pas de contrôle de concurrence (last-writer-wins).
-- Pas d'authentification — usage local.
+- Auth désactivée par défaut — activer `JDR_API_AUTH=1` pour le parcours multi-poste.
 - Dégâts post-attaque, sorts/conditions combat, avancement de tour : hors lot 1.
 - Dette : `COMBAT_STATE_UNSUPPORTED` — voir `docs/api/CONTRAT.md` §10.4.

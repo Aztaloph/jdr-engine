@@ -23,7 +23,7 @@ from jdr_engine.persistence.character_repository import (
 
 logger = logging.getLogger(__name__)
 
-DB_SCHEMA_VERSION = 4
+DB_SCHEMA_VERSION = 5
 DEFAULT_DB_PATH = get_project_root() / "data" / "bot.db"
 
 # Marqueurs one-shot — SQLite est la source de vérité après le premier import.
@@ -113,6 +113,21 @@ CREATE TABLE IF NOT EXISTS combat_event_log (
 _CREATE_COMBAT_EVENT_LOG_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_combat_event_log_combat_id
     ON combat_event_log (combat_id);
+"""
+
+_CREATE_API_SESSIONS = """
+CREATE TABLE IF NOT EXISTS api_sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('player', 'gm')),
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+"""
+
+_CREATE_API_SESSIONS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_api_sessions_expires
+    ON api_sessions (expires_at);
 """
 
 
@@ -243,6 +258,8 @@ def init_database(db_path: Path | None = None) -> Path:
         conn.executescript(_CREATE_COMBATS_OPEN_INDEX)
         conn.executescript(_CREATE_COMBAT_EVENT_LOG)
         conn.executescript(_CREATE_COMBAT_EVENT_LOG_INDEX)
+        conn.executescript(_CREATE_API_SESSIONS)
+        conn.executescript(_CREATE_API_SESSIONS_INDEX)
         conn.execute(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
             ("schema_version", str(DB_SCHEMA_VERSION)),

@@ -20,6 +20,7 @@ from jdr_engine.core.events.domain_event import DomainEvent
 from jdr_engine.persistence.combat_repository import CombatNotFoundError
 
 WS_COMBAT_NOT_FOUND = 4404
+WS_AUTH_REQUIRED = 4401
 
 
 @dataclass
@@ -125,8 +126,10 @@ def register_combat_ws_routes(
     *,
     hub: CombatWsHub,
     combat_service: CombatService,
+    character_repository=None,
 ) -> None:
     """Enregistre ``WS /v1/combats/{combat_id}/ws``."""
+    from interfaces.api.auth.guards import assert_viewer_allowed, auth_enabled
 
     def _normalize_viewer(viewer: str | None) -> str | None:
         if viewer is None:
@@ -134,20 +137,52 @@ def register_combat_ws_routes(
         trimmed = viewer.strip()
         return trimmed if trimmed else None
 
+    def _resolve_ws_session(websocket: WebSocket, token: str | None):
+        if not auth_enabled(websocket):
+            return None
+        trimmed = (token or "").strip()
+        if not trimmed:
+            return "missing"
+        store = websocket.app.state.session_store
+        session = store.get_valid(trimmed)
+        if session is None:
+            return "invalid"
+        return session
+
     @app.websocket("/v1/combats/{combat_id}/ws")
     async def combat_websocket(
         websocket: WebSocket,
         combat_id: int,
         viewer: str | None = None,
+        token: str | None = None,
     ) -> None:
         await websocket.accept()
+        ws_session = _resolve_ws_session(websocket, token)
+        if ws_session == "missing" or ws_session == "invalid":
+            await websocket.close(code=WS_AUTH_REQUIRED)
+            return
+
         try:
-            combat_service.load_combat(combat_id)
+            state = combat_service.load_combat(combat_id)
         except CombatNotFoundError:
             await websocket.close(code=WS_COMBAT_NOT_FOUND)
             return
 
         normalized_viewer = _normalize_viewer(viewer)
+        if ws_session is not None and character_repository is not None:
+            from interfaces.api.errors import ApiError
+
+            try:
+                normalized_viewer = assert_viewer_allowed(
+                    ws_session,
+                    normalized_viewer,
+                    state=state,
+                    character_repository=character_repository,
+                )
+            except ApiError:
+                await websocket.close(code=WS_AUTH_REQUIRED)
+                return
+
         conn = _WsConnection(
             websocket=websocket,
             loop=asyncio.get_running_loop(),

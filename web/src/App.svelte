@@ -1,16 +1,33 @@
 <script lang="ts">
-  import Router, { link, router } from "svelte-spa-router";
+  import Router, { link, push, router } from "svelte-spa-router";
   import LandingScreen from "./lib/screens/LandingScreen.svelte";
   import LobbyScreen from "./lib/screens/LobbyScreen.svelte";
   import CombatScreen from "./lib/screens/CombatScreen.svelte";
   import CharacterScreen from "./lib/screens/CharacterScreen.svelte";
+  import LoginScreen from "./lib/screens/LoginScreen.svelte";
   import { ensureDefaultRoute } from "./lib/navigation";
+  import { authState, initAuth, requireAuthRedirect } from "./lib/auth/store.svelte";
   import type { RouteDefinition } from "svelte-spa-router";
 
   ensureDefaultRoute();
 
+  $effect(() => {
+    void initAuth();
+  });
+
+  $effect(() => {
+    if (!authState.ready) {
+      return;
+    }
+    const loginPath = requireAuthRedirect();
+    if (loginPath && router.location !== "/login") {
+      push(loginPath);
+    }
+  });
+
   const routes: RouteDefinition = {
     "/": LandingScreen,
+    "/login": LoginScreen,
     "/lobby": LobbyScreen,
     "/combat/:id": CombatScreen,
     "/character/:id": CharacterScreen,

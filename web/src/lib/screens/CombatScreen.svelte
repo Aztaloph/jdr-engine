@@ -38,6 +38,8 @@
   import { link, router } from "svelte-spa-router";
   import { tick } from "svelte";
   import { navigateToCombat, navigateToLobby, viewerFromQuerystring } from "../navigation";
+  import { authIsGm, authState } from "../auth/store.svelte";
+  import { fetchCharacterList } from "../api/characters";
   import ErrorAlert from "../components/ErrorAlert.svelte";
   import Panel from "../components/combat/Panel.svelte";
   import CombatantCard from "../components/combat/CombatantCard.svelte";
@@ -108,9 +110,38 @@
     openActionMenu = openActionMenu === menu ? null : menu;
   }
 
+  const isGm = $derived(authIsGm());
+
   const canAdvance = $derived(
-    combat !== null && combat.status === "active" && !loading,
+    isGm &&
+      combat !== null &&
+      combat.status === "active" &&
+      !loading,
   );
+
+  let ownedCharacterIds = $state<Set<string>>(new Set());
+
+  const combatParticipants = $derived(
+    combat
+      ? Object.values(combat.combatants).map((c) => ({
+          character_id: c.character_id,
+          display_name: c.display_name,
+        }))
+      : [],
+  );
+
+  const viewerOptions = $derived.by(() => {
+    if (!combat) {
+      return [] as { character_id: string; display_name: string }[];
+    }
+    const participants = combatParticipants;
+    if (authState.mode === "disabled" || isGm) {
+      return participants;
+    }
+    return participants.filter((p) => ownedCharacterIds.has(p.character_id));
+  });
+
+  const showDmViewOption = $derived(isGm);
 
   const canAttack = $derived(
     combat !== null &&
@@ -169,14 +200,17 @@
     return prepared.filter((id) => !cantrips.has(id));
   });
 
-  const combatParticipants = $derived(
-    combat
-      ? Object.values(combat.combatants).map((c) => ({
-          character_id: c.character_id,
-          display_name: c.display_name,
-        }))
-      : [],
-  );
+  $effect(() => {
+    if (authState.mode === "required" && authState.session?.role === "player") {
+      void fetchCharacterList()
+        .then((list) => {
+          ownedCharacterIds = new Set(list.map((entry) => entry.character_id));
+        })
+        .catch(() => {
+          ownedCharacterIds = new Set();
+        });
+    }
+  });
 
   const isViewerTurn = $derived(
     combat?.viewer?.combatant_id != null &&
@@ -795,18 +829,22 @@
     {/if}
 
     <div class="topbar-controls">
-      {#if combatParticipants.length > 0}
+      {#if viewerOptions.length > 0 || showDmViewOption}
         <label class="viewer-control">
           <span class="viewer-label">Vue joueur</span>
           <select bind:value={viewer} onchange={onViewerSelect}>
-            <option value="">— Vue MJ —</option>
-            {#each combatParticipants as p (p.character_id)}
+            {#if showDmViewOption}
+              <option value="">— Vue MJ —</option>
+            {/if}
+            {#each viewerOptions as p (p.character_id)}
               <option value={p.character_id}>
                 {p.display_name} ({p.character_id})
               </option>
             {/each}
           </select>
         </label>
+      {:else if !isGm}
+        <span class="viewer-label">Aucun personnage autorisé dans cette rencontre.</span>
       {:else}
         <label class="viewer-control">
           <span class="viewer-label">Vue joueur (character_id)</span>
@@ -833,7 +871,8 @@
         type="button"
         class="top-btn danger"
         onclick={closeAndReturnToLobby}
-        disabled={loading || !combatId}
+        disabled={loading || !combatId || !isGm}
+        hidden={!isGm}
       >
         <Icon name="exit" size={13} />
         Clôturer
@@ -1282,6 +1321,7 @@
               </div>
             {/if}
 
+            {#if isGm}
             <div class="action-menu" class:menu-open={openActionMenu === "dm"}>
               <button
                 type="button"
@@ -1319,6 +1359,7 @@
                 </div>
               {/if}
             </div>
+            {/if}
 
             </div>
 
@@ -1328,6 +1369,7 @@
               <span class="soon-tag">À venir</span>
             </button>
 
+            {#if isGm}
             <button
               type="button"
               class="btn-endturn"
@@ -1337,6 +1379,7 @@
               <Icon name="next" size={14} />
               Fin de tour
             </button>
+            {/if}
             </div>
           {:else if combat.status === "preparing"}
             <p class="hint">Combat en préparation — activez depuis le lobby.</p>

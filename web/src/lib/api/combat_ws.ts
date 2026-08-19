@@ -4,6 +4,10 @@
  */
 
 import type { CombatState, GridPosition } from "../types/combat";
+import { getStoredToken } from "../auth/session";
+
+/** Code applicatif — auth requise ou invalide (ne pas reconnecter sans token). */
+export const WS_AUTH_REQUIRED = 4401;
 
 /** Code applicatif — combat introuvable (ne pas reconnecter). */
 export const WS_COMBAT_NOT_FOUND = 4404;
@@ -83,6 +87,10 @@ function wsBaseUrl(): string {
 
 function buildWsUrl(combatId: string, viewer?: string): string {
   const params = new URLSearchParams();
+  const token = getStoredToken();
+  if (token) {
+    params.set("token", token);
+  }
   const viewerTrimmed = viewer?.trim();
   if (viewerTrimmed) {
     params.set("viewer", viewerTrimmed);
@@ -223,8 +231,10 @@ export function connectCombatWs(
         return;
       }
       bridge.onStatusChange("closed", String(event.code));
-      if (event.code === WS_COMBAT_NOT_FOUND) {
-        bridge.onCombatNotFound();
+      if (event.code === WS_COMBAT_NOT_FOUND || event.code === WS_AUTH_REQUIRED) {
+        if (event.code === WS_COMBAT_NOT_FOUND) {
+          bridge.onCombatNotFound();
+        }
         stopped = true;
         return;
       }

@@ -12,6 +12,9 @@
   import type { CombatState, LoadError } from "../types/combat";
   import { navigateToCombat, navigateToCharacter } from "../navigation";
   import ErrorAlert from "../components/ErrorAlert.svelte";
+  import { authIsGm, authState } from "../auth/store.svelte";
+  import { logoutAndClear } from "../auth/store.svelte";
+  import { push, link } from "svelte-spa-router";
 
   let characterRows = $state<string[]>(["", ""]);
   let manualRows = $state<boolean[]>([false, false]);
@@ -26,13 +29,17 @@
 
   const hasCharacterList = $derived(characterOptions.length > 0);
 
+  const isGm = $derived(authIsGm());
+
   const canCreate = $derived(
-    !loading &&
+    isGm &&
+      !loading &&
       characterRows.some((row) => row.trim().length > 0),
   );
 
   const canActivate = $derived(
-    lobbyCombat !== null &&
+    isGm &&
+      lobbyCombat !== null &&
       lobbyCombat.status === "preparing" &&
       lobbyCombat.combat_id !== null &&
       !loading,
@@ -153,9 +160,39 @@
 </script>
 
 <h1>Lobby — créer une rencontre</h1>
+
+{#if authState.mode === "disabled" && authState.ready && !authState.probeError}
+  <p class="hint auth-banner auth-banner--off" role="status">
+    Auth API <strong>désactivée</strong> — banc local ouvert (tout le monde = vue MJ).
+    Pour tester l'auth : fermez tout, relancez <code>launcher_web_auth.bat</code>,
+    puis connectez-vous sur <a href="/login" use:link>#/login</a>.
+  </p>
+{/if}
+
+{#if authState.mode === "required" && authState.session}
+  <p class="hint session-bar">
+    Session : <strong>{authState.session.user_id}</strong>
+    ({authState.session.role === "gm" ? "MJ" : "Joueur"})
+    <button
+      type="button"
+      class="linkish"
+      onclick={() => {
+        void logoutAndClear().then(() => push("/login"));
+      }}
+    >
+      Déconnexion
+    </button>
+  </p>
+{/if}
+
 <p class="hint">
   Choisissez les personnages dans la liste (API <code>GET /v1/characters</code>)
-  ou basculez en saisie manuelle. Vue MJ — create/activate sans filtre viewer.
+  ou basculez en saisie manuelle.
+  {#if isGm}
+    Vue MJ — create/activate sans filtre viewer.
+  {:else}
+    Rôle joueur — rejoignez une rencontre existante via « Ouvrir ».
+  {/if}
 </p>
 
 {#if listError}
@@ -183,9 +220,11 @@
             <button type="button" class="linkish" onclick={() => navigateToCombat(entry.combat_id)} disabled={loading}>
               Ouvrir
             </button>
+            {#if isGm}
             <button type="button" onclick={() => closeOpenCombat(entry.combat_id)} disabled={loading}>
               Clôturer
             </button>
+            {/if}
           </div>
         </li>
       {/each}
@@ -196,6 +235,7 @@
   {/if}
 </fieldset>
 
+{#if isGm}
 <fieldset>
   <legend>Combattants</legend>
   <ul class="character-rows">
@@ -254,6 +294,21 @@
   <button type="button" class="linkish" onclick={addRow}>+ Ajouter un personnage</button>
 </fieldset>
 
+<div class="actions">
+  <button type="button" onclick={createLobbyCombat} disabled={!canCreate}>
+    {loading ? "Création…" : "Créer le combat"}
+  </button>
+  {#if lobbyCombat?.combat_id != null}
+    <button type="button" onclick={activateLobbyCombat} disabled={!canActivate}>
+      {loading ? "Activation…" : "Activer et jouer"}
+    </button>
+    <button type="button" onclick={openCombatReadOnly} disabled={loading}>
+      Ouvrir sans activer
+    </button>
+  {/if}
+</div>
+{/if}
+
 <fieldset>
   <legend>Consulter une fiche</legend>
   {#if hasCharacterList && !sheetManual}
@@ -297,20 +352,6 @@
     </button>
   </div>
 </fieldset>
-
-<div class="actions">
-  <button type="button" onclick={createLobbyCombat} disabled={!canCreate}>
-    {loading ? "Création…" : "Créer le combat"}
-  </button>
-  {#if lobbyCombat?.combat_id != null}
-    <button type="button" onclick={activateLobbyCombat} disabled={!canActivate}>
-      {loading ? "Activation…" : "Activer et jouer"}
-    </button>
-    <button type="button" onclick={openCombatReadOnly} disabled={loading}>
-      Ouvrir sans activer
-    </button>
-  {/if}
-</div>
 
 {#if error}
   <ErrorAlert {error} />

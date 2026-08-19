@@ -1,5 +1,6 @@
 import { isLoadError } from "./combat";
 import type { LoadError } from "../types/combat";
+import { authFetch } from "../auth/session";
 import type {
   PreparedSpellsRequest,
   PreparedSpellsView,
@@ -43,7 +44,7 @@ export async function fetchPreparedSpells(
 ): Promise<PreparedSpellsView> {
   let res: Response;
   try {
-    res = await fetch(
+    res = await authFetch(
       `/v1/characters/${encodeURIComponent(characterId)}/prepared-spells`,
     );
   } catch (cause) {
@@ -65,7 +66,7 @@ export async function applyPreparedSpells(
 ): Promise<PreparedSpellsView> {
   let res: Response;
   try {
-    res = await fetch(
+    res = await authFetch(
       `/v1/characters/${encodeURIComponent(characterId)}/prepared-spells`,
       {
         method: "PUT",

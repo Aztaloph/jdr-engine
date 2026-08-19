@@ -1,5 +1,6 @@
 import type { ApiErrorPayload, CombatJournalEntry, CombatState, LoadError } from "../types/combat";
 import type { WeaponAttackResult, WeaponId } from "../types/attack";
+import { authFetch } from "../auth/session";
 
 const API_UNREACHABLE_MESSAGE =
   "API injoignable — lancez uvicorn sur le port 8000 (voir web/README.md).";
@@ -85,7 +86,7 @@ export async function fetchCombatState(
 
   let res: Response;
   try {
-    res = await fetch(url, { cache: "no-store" });
+    res = await authFetch(url, { cache: "no-store" });
   } catch (cause) {
     throw {
       kind: "network",
@@ -131,7 +132,7 @@ export async function healCombatant(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await authFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -173,7 +174,7 @@ export async function syncCombatantFromSheet(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await authFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ combatant_id: combatantId }),
@@ -214,7 +215,7 @@ export async function advanceCombatTurn(
 
   let res: Response;
   try {
-    res = await fetch(url, { method: "POST" });
+    res = await authFetch(url, { method: "POST" });
   } catch (cause) {
     throw {
       kind: "network",
@@ -265,7 +266,7 @@ export async function postCombatCast(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await authFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -307,7 +308,7 @@ export async function postWeaponAttack(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await authFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -350,7 +351,7 @@ export async function createCombat(characterIds: string[]): Promise<CombatState>
 
   let res: Response;
   try {
-    res = await fetch("/v1/combats", {
+    res = await authFetch("/v1/combats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ character_ids: ids }),
@@ -380,7 +381,7 @@ export async function fetchCombatJournal(combatId: string): Promise<CombatJourna
 
   let res: Response;
   try {
-    res = await fetch(`/v1/combats/${encodeURIComponent(id)}/events`);
+    res = await authFetch(`/v1/combats/${encodeURIComponent(id)}/events`);
   } catch (cause) {
     throw {
       kind: "network",
@@ -424,7 +425,7 @@ export async function postCombatMove(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await authFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -454,7 +455,7 @@ export async function activateCombat(combatId: string): Promise<CombatState> {
 
   let res: Response;
   try {
-    res = await fetch(`/v1/combats/${encodeURIComponent(id)}/activate`, {
+    res = await authFetch(`/v1/combats/${encodeURIComponent(id)}/activate`, {
       method: "POST",
     });
   } catch (cause) {
@@ -488,7 +489,7 @@ export interface OpenCombatSummary {
 export async function fetchOpenCombats(): Promise<OpenCombatSummary[]> {
   let res: Response;
   try {
-    res = await fetch("/v1/combats/open");
+    res = await authFetch("/v1/combats/open");
   } catch (cause) {
     throw {
       kind: "network",
@@ -514,7 +515,7 @@ export async function closeCombat(combatId: string): Promise<CombatState> {
 
   let res: Response;
   try {
-    res = await fetch(`/v1/combats/${encodeURIComponent(id)}/close`, {
+    res = await authFetch(`/v1/combats/${encodeURIComponent(id)}/close`, {
       method: "POST",
     });
   } catch (cause) {

@@ -10,11 +10,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from interfaces.api.auth.config import resolve_auth_enabled
+from interfaces.api.auth.guards import (
+    assert_character_access,
+    assert_combatant_owned,
+    assert_viewer_allowed,
+    require_gm,
+    require_session,
+)
+from interfaces.api.auth.routes import register_auth_routes
+from interfaces.api.auth.session_store import ApiSessionStore
 from interfaces.api.combat_routes import register_combat_routes
 from interfaces.api.combat_ws import (
     CombatWsHub,
@@ -76,6 +86,7 @@ def create_app(
     event_buffer: EventRingBuffer | None = None,
     combat_initiative_rng=None,
     combat_attack_rng=None,
+    auth_enabled: bool | None = None,
 ) -> FastAPI:
     """
     Fabrique de l'application FastAPI.
@@ -112,6 +123,9 @@ def create_app(
     )
     register_error_handlers(app)
     app.state.event_bus = event_bus
+    app.state.auth_enabled = resolve_auth_enabled(explicit=auth_enabled)
+    app.state.session_store = ApiSessionStore(resolved_db_path)
+    register_auth_routes(app, session_store=app.state.session_store)
 
     def _load_character(character_id: str) -> Character:
         character = repository.get_by_id(character_id)
@@ -124,16 +138,28 @@ def create_app(
         return character
 
     @app.get("/v1/characters")
-    def list_characters() -> dict:
-        """Index minimal pour le banc de test web (pas de filtre propriétaire)."""
+    def list_characters(request: Request) -> dict:
+        """Index personnages — filtré par propriétaire si rôle player."""
+        session = require_session(request)
         with get_connection(resolved_db_path) as conn:
-            rows = conn.execute(
-                """
-                SELECT id, nom, classe, niveau, race_id
-                FROM personnages
-                ORDER BY nom COLLATE NOCASE
-                """
-            ).fetchall()
+            if session is not None and session.role == "player":
+                rows = conn.execute(
+                    """
+                    SELECT id, nom, classe, niveau, race_id
+                    FROM personnages
+                    WHERE discord_user_id = ?
+                    ORDER BY nom COLLATE NOCASE
+                    """,
+                    (session.user_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, nom, classe, niveau, race_id
+                    FROM personnages
+                    ORDER BY nom COLLATE NOCASE
+                    """
+                ).fetchall()
         return {
             "characters": [
                 {
@@ -148,8 +174,10 @@ def create_app(
         }
 
     @app.get("/v1/characters/{character_id}/sheet")
-    def get_sheet(character_id: str) -> dict:
+    def get_sheet(character_id: str, request: Request) -> dict:
+        session = require_session(request)
         character = _load_character(character_id)
+        assert_character_access(session, character)
         return build_character_sheet_response(
             character,
             engine,
@@ -158,8 +186,10 @@ def create_app(
         )
 
     @app.post("/v1/characters/{character_id}/cast")
-    def cast(character_id: str, body: CastSpellRequest) -> dict:
+    def cast(character_id: str, body: CastSpellRequest, request: Request) -> dict:
+        session = require_session(request)
         character = _load_character(character_id)
+        assert_character_access(session, character)
         try:
             result = cast_spell(
                 character,
@@ -178,8 +208,14 @@ def create_app(
         return spell_cast_result_to_dict(result)
 
     @app.post("/v1/characters/{character_id}/short-rest")
-    def short_rest(character_id: str, body: ShortRestRequest) -> dict:
+    def short_rest(
+        character_id: str,
+        body: ShortRestRequest,
+        request: Request,
+    ) -> dict:
+        session = require_session(request)
         character = _load_character(character_id)
+        assert_character_access(session, character)
         try:
             updated, result = apply_short_rest(
                 character, engine, body.dice_to_spend
@@ -194,8 +230,10 @@ def create_app(
         return short_rest_result_to_dict(result)
 
     @app.post("/v1/characters/{character_id}/long-rest")
-    def long_rest(character_id: str) -> dict:
+    def long_rest(character_id: str, request: Request) -> dict:
+        session = require_session(request)
         character = _load_character(character_id)
+        assert_character_access(session, character)
         try:
             updated, result = apply_long_rest(character, engine)
         except RestError as exc:
@@ -208,8 +246,10 @@ def create_app(
         return long_rest_result_to_dict(result)
 
     @app.get("/v1/characters/{character_id}/prepared-spells")
-    def get_prepared_spells(character_id: str) -> dict:
+    def get_prepared_spells(character_id: str, request: Request) -> dict:
+        session = require_session(request)
         character = _load_character(character_id)
+        assert_character_access(session, character)
         eligible = requires_prepared_rechoice_class(character.class_id)
         pending = is_prepared_rechoice_pending(character) if eligible else False
         ctx = (
@@ -228,8 +268,11 @@ def create_app(
     def put_prepared_spells(
         character_id: str,
         body: PreparedSpellsRequest,
+        request: Request,
     ) -> dict:
+        session = require_session(request)
         character = _load_character(character_id)
+        assert_character_access(session, character)
         if not requires_prepared_rechoice_class(character.class_id):
             raise ApiError(
                 409,
@@ -275,6 +318,7 @@ def create_app(
         app,
         hub=combat_ws_hub,
         combat_service=combat_service,
+        character_repository=repository,
     )
     app.state.combat_ws_hub = combat_ws_hub
 

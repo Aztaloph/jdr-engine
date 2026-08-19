@@ -1,5 +1,6 @@
 import type { ApiErrorPayload, LoadError } from "../types/combat";
 import type { CharacterSheet } from "../types/sheet";
+import { authFetch } from "../auth/session";
 
 async function parseJsonResponse<T>(res: Response): Promise<T | LoadError> {
   const text = await res.text();
@@ -50,7 +51,7 @@ export async function fetchCharacterSheet(
 
   let res: Response;
   try {
-    res = await fetch(`/v1/characters/${encodeURIComponent(id)}/sheet`);
+    res = await authFetch(`/v1/characters/${encodeURIComponent(id)}/sheet`);
   } catch (cause) {
     throw {
       kind: "network",

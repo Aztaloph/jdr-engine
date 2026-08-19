@@ -1,3 +1,4 @@
+import { authFetch } from "../auth/session";
 import { isLoadError } from "./combat";
 import type { LoadError } from "../types/combat";
 import type { CharacterListEntry, CharacterListResponse } from "../types/character";
@@ -5,7 +6,7 @@ import type { CharacterListEntry, CharacterListResponse } from "../types/charact
 export async function fetchCharacterList(): Promise<CharacterListEntry[]> {
   let res: Response;
   try {
-    res = await fetch("/v1/characters");
+    res = await authFetch("/v1/characters");
   } catch (cause) {
     throw {
       kind: "network",
@@ -38,7 +39,7 @@ export async function postLongRest(characterId: string): Promise<void> {
 
   let res: Response;
   try {
-    res = await fetch(`/v1/characters/${encodeURIComponent(id)}/long-rest`, {
+    res = await authFetch(`/v1/characters/${encodeURIComponent(id)}/long-rest`, {
       method: "POST",
     });
   } catch (cause) {
