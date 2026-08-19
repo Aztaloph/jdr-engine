@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Callable
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,6 +24,12 @@ from interfaces.api.combat_scope import (
     resolve_create_scope,
 )
 from interfaces.api.errors import ApiError
+from interfaces.scenes.scene_store import SqliteSceneStore
+from interfaces.scenes.spawn_placements import (
+    build_spawn_placements,
+    grid_dimensions_from_snapshot,
+)
+from interfaces.scenes.validate import SceneValidationError, parse_scene_document
 from jdr_engine.application.combat_view import (
     resolve_combatant_ability_snapshots,
     resolve_viewer_context,
@@ -67,6 +75,7 @@ class CreateCombatRequest(BaseModel):
     character_ids: list[str] = Field(min_length=1)
     channel_id: str | None = None
     guild_id: str | None = None
+    scene_id: str | None = None
 
 
 class AttackRequestBody(BaseModel):
@@ -135,6 +144,7 @@ def register_combat_routes(
     character_repository: SqliteCharacterRepository,
     combat_repository: SqliteCombatRepository,
     engine,
+    db_path: Path,
     locale: str = "fr",
     initiative_rng: Callable[[], int] | None = None,
     attack_rng=None,
@@ -142,6 +152,7 @@ def register_combat_routes(
     """Enregistre ``/v1/combats/…`` sur l'application."""
     app.state.combat_initiative_rng = initiative_rng
     app.state.combat_attack_rng = attack_rng
+    scene_store = SqliteSceneStore(db_path)
 
     def _assert_characters_exist(character_ids: list[str]) -> None:
         for character_id in character_ids:
@@ -201,9 +212,28 @@ def register_combat_routes(
             combatant_ability_snapshots=ability_snapshots,
         )
 
+    def _scene_fields(combat_id: int) -> dict:
+        binding = combat_repository.get_scene_binding(combat_id)
+        if binding is None:
+            return {}
+        return {
+            "scene_id": binding.scene_id,
+            "scene_snapshot": binding.snapshot,
+        }
+
+    def _combat_payload(
+        state: CombatState,
+        *,
+        viewer: str | None = None,
+    ) -> dict:
+        payload = _serialize_combat_state(state, viewer=viewer)
+        if state.combat_id is not None:
+            payload.update(_scene_fields(int(state.combat_id)))
+        return payload
+
     def _combat_response(combat_id: int, viewer: str | None = None) -> dict:
         state = combat_service.load_combat(combat_id)
-        return _serialize_combat_state(state, viewer=viewer)
+        return _combat_payload(state, viewer=viewer)
 
     def _resolve_viewer(
         request: Request,
@@ -233,6 +263,37 @@ def register_combat_routes(
             guild_id=body.guild_id,
             channel_id=body.channel_id,
         )
+        scene_snapshot: dict | None = None
+        resolved_scene_id: str | None = None
+        if body.scene_id is not None:
+            record = scene_store.get(body.scene_id)
+            if record is None:
+                raise ApiError(
+                    404,
+                    "SCENE_NOT_FOUND",
+                    "Scène introuvable.",
+                    details={"scene_id": body.scene_id},
+                )
+            try:
+                scene_snapshot = parse_scene_document(record.document)
+            except SceneValidationError as exc:
+                raise ApiError(
+                    422,
+                    "SCENE_INVALID",
+                    "Document scène invalide.",
+                    details={
+                        "issues": [
+                            {
+                                "code": issue.code,
+                                "message": issue.message,
+                                "ref": issue.ref,
+                            }
+                            for issue in exc.report.issues
+                            if issue.level == "error"
+                        ]
+                    },
+                ) from exc
+            resolved_scene_id = record.id
         try:
             state = combat_service.create_combat(
                 guild_id,
@@ -251,7 +312,15 @@ def register_combat_routes(
                 "OPEN_COMBAT_EXISTS",
                 str(exc),
             ) from exc
-        return _serialize_combat_state(state, viewer=None)
+        if scene_snapshot is not None and resolved_scene_id is not None:
+            assert state.combat_id is not None
+            combat_repository.set_scene_binding(
+                int(state.combat_id),
+                scene_id=resolved_scene_id,
+                snapshot=scene_snapshot,
+                character_ids=body.character_ids,
+            )
+        return _combat_payload(state, viewer=None)
 
     @app.get("/v1/combats/open")
     def list_open_combats(request: Request) -> dict:
@@ -281,7 +350,7 @@ def register_combat_routes(
         try:
             state = combat_service.load_combat(combat_id)
             resolved_viewer = _resolve_viewer(request, state, viewer)
-            return _serialize_combat_state(state, viewer=resolved_viewer)
+            return _combat_payload(state, viewer=resolved_viewer)
         except CombatNotFoundError as exc:
             raise ApiError(
                 404,
@@ -317,10 +386,19 @@ def register_combat_routes(
         session = require_session(request)
         require_gm(session)
         rng = getattr(request.app.state, "combat_initiative_rng", None)
+        binding = combat_repository.get_scene_binding(combat_id)
         grid_width = 20
         grid_height = 20
         placements: dict[str, GridPosition] | None = None
-        if body is not None:
+        if binding is not None:
+            grid_width, grid_height = grid_dimensions_from_snapshot(binding.snapshot)
+            state = combat_service.load_combat(combat_id)
+            placements = build_spawn_placements(
+                binding.snapshot,
+                list(binding.character_ids),
+                state.combatants,
+            )
+        elif body is not None:
             if body.grid is not None:
                 grid_width = body.grid.width
                 grid_height = body.grid.height
@@ -368,7 +446,7 @@ def register_combat_routes(
                 "VALIDATION_ERROR",
                 str(exc),
             ) from exc
-        return _serialize_combat_state(state, viewer=None)
+        return _combat_payload(state, viewer=None)
 
     @app.post("/v1/combats/{combat_id}/attack")
     def attack(

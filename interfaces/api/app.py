@@ -308,6 +308,7 @@ def create_app(
         character_repository=repository,
         combat_repository=combat_repository,
         engine=engine,
+        db_path=resolved_db_path,
         locale=locale,
         initiative_rng=combat_initiative_rng,
         attack_rng=combat_attack_rng,

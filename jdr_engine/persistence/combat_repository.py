@@ -35,6 +35,15 @@ class CombatNotFoundError(Exception):
 
 
 @dataclass(frozen=True)
+class SceneCombatBinding:
+    """Métadonnées scène liées à une rencontre (hors ``CombatState`` moteur)."""
+
+    scene_id: str
+    snapshot: dict
+    character_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CombatRecord:
     """Ligne SQL + état désérialisé."""
 
@@ -82,6 +91,52 @@ class SqliteCombatRepository:
             sql_status,
         )
         return combat_id
+
+    def set_scene_binding(
+        self,
+        combat_id: int,
+        *,
+        scene_id: str,
+        snapshot: dict,
+        character_ids: list[str],
+    ) -> None:
+        """Associe un snapshot scène figé à une rencontre (lot Sc)."""
+        payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
+        ids_payload = json.dumps(list(character_ids), ensure_ascii=False)
+        with get_connection(self.db_path) as conn:
+            updated = conn.execute(
+                """
+                UPDATE combats
+                SET scene_id = ?, scene_snapshot_json = ?, scene_character_ids_json = ?,
+                    updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (str(scene_id), payload, ids_payload, combat_id),
+            ).rowcount
+        if updated == 0:
+            raise CombatNotFoundError(f"Combat introuvable : id={combat_id}.")
+
+    def get_scene_binding(self, combat_id: int) -> SceneCombatBinding | None:
+        with get_connection(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT scene_id, scene_snapshot_json, scene_character_ids_json
+                FROM combats WHERE id = ?
+                """,
+                (combat_id,),
+            ).fetchone()
+        if row is None or row["scene_snapshot_json"] is None:
+            return None
+        character_ids_raw = row["scene_character_ids_json"]
+        if character_ids_raw:
+            character_ids = tuple(json.loads(character_ids_raw))
+        else:
+            character_ids = ()
+        return SceneCombatBinding(
+            scene_id=str(row["scene_id"] or ""),
+            snapshot=json.loads(row["scene_snapshot_json"]),
+            character_ids=character_ids,
+        )
 
     def insert_active(
         self,

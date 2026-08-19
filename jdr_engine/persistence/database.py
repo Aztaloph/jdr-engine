@@ -23,7 +23,7 @@ from jdr_engine.persistence.character_repository import (
 
 logger = logging.getLogger(__name__)
 
-DB_SCHEMA_VERSION = 6
+DB_SCHEMA_VERSION = 7
 DEFAULT_DB_PATH = get_project_root() / "data" / "bot.db"
 
 # Marqueurs one-shot — SQLite est la source de vérité après le premier import.
@@ -90,7 +90,10 @@ CREATE TABLE IF NOT EXISTS combats (
     channel_id TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('preparing', 'active', 'ended')),
     state_json TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    scene_id TEXT,
+    scene_snapshot_json TEXT,
+    scene_character_ids_json TEXT
 );
 """
 
@@ -210,6 +213,27 @@ def _combats_table_has_preparing(conn: sqlite3.Connection) -> bool:
     return "'preparing'" in str(row["sql"])
 
 
+def _combats_table_has_column(conn: sqlite3.Connection, column: str) -> bool:
+    rows = conn.execute("PRAGMA table_info(combats)").fetchall()
+    return any(str(row[1]) == column for row in rows)
+
+
+def migrate_combats_scene_v7(conn: sqlite3.Connection) -> None:
+    """Ajoute les colonnes scène sur ``combats`` (jalon S lot Sc)."""
+    columns = (
+        ("scene_id", "TEXT"),
+        ("scene_snapshot_json", "TEXT"),
+        ("scene_character_ids_json", "TEXT"),
+    )
+    added = False
+    for name, sql_type in columns:
+        if not _combats_table_has_column(conn, name):
+            conn.execute(f"ALTER TABLE combats ADD COLUMN {name} {sql_type}")
+            added = True
+    if added:
+        logger.info("Migration combats SQL v7 — colonnes scène (snapshot create)")
+
+
 def migrate_combats_schema_v3(conn: sqlite3.Connection) -> None:
     """
     Schéma SQL v3 — statut ``preparing`` + index partiel preparing/active.
@@ -260,6 +284,7 @@ def ensure_combats_schema(db_path: Path | None = None) -> None:
         conn.executescript(_CREATE_META)
         conn.executescript(_CREATE_COMBATS)
         migrate_combats_schema_v3(conn)
+        migrate_combats_scene_v7(conn)
         conn.executescript(_CREATE_COMBATS_OPEN_INDEX)
         conn.executescript(_CREATE_COMBAT_EVENT_LOG)
         conn.executescript(_CREATE_COMBAT_EVENT_LOG_INDEX)
@@ -278,6 +303,7 @@ def init_database(db_path: Path | None = None) -> Path:
         conn.executescript(_CREATE_PERSO_ACTIF)
         conn.executescript(_CREATE_COMBATS)
         migrate_combats_schema_v3(conn)
+        migrate_combats_scene_v7(conn)
         conn.executescript(_CREATE_COMBATS_OPEN_INDEX)
         conn.executescript(_CREATE_COMBAT_EVENT_LOG)
         conn.executescript(_CREATE_COMBAT_EVENT_LOG_INDEX)

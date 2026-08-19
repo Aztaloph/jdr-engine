@@ -2201,19 +2201,20 @@ class CombatManager:
         grid: CombatGrid,
         placements: dict[str, GridPosition] | None,
     ) -> dict[str, GridPosition]:
-        if placements is None:
-            try:
-                return default_combatant_placements(initiative_order, grid)
-            except GridTooSmallError as exc:
-                raise ValueError(str(exc)) from exc
+        try:
+            baseline = default_combatant_placements(initiative_order, grid)
+        except GridTooSmallError as exc:
+            raise ValueError(str(exc)) from exc
 
-        resolved: dict[str, GridPosition] = {}
-        for combatant_id in initiative_order:
-            if combatant_id not in placements:
+        if placements is None:
+            return baseline
+
+        resolved = dict(baseline)
+        for combatant_id, position in placements.items():
+            if combatant_id not in resolved:
                 raise ValueError(
-                    f"Placement manquant pour le combattant {combatant_id!r}."
+                    f"Placement pour combattant inconnu {combatant_id!r}."
                 )
-            position = placements[combatant_id]
             if not grid.contains(position.x, position.y):
                 raise InvalidPositionError(
                     f"Case ({position.x}, {position.y}) hors grille "
