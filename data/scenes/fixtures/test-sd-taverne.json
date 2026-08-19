@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "name": "Taverne test Sd",
+  "grid": {
+    "width": 16,
+    "height": 10,
+    "enabled": true
+  },
+  "objects": [
+    {
+      "id": "bg-main",
+      "kind": "background",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 10,
+      "quarter_turns": 0,
+      "asset_id": null
+    },
+    {
+      "id": "wall-north",
+      "kind": "wall",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 1,
+      "quarter_turns": 0,
+      "asset_id": null
+    },
+    {
+      "id": "table-center",
+      "kind": "table",
+      "x": 7,
+      "y": 4,
+      "width": 2,
+      "height": 2,
+      "quarter_turns": 0,
+      "asset_id": null
+    },
+    {
+      "id": "torch-a",
+      "kind": "torch",
+      "x": 2,
+      "y": 2,
+      "width": 1,
+      "height": 1,
+      "quarter_turns": 0,
+      "asset_id": null
+    }
+  ],
+  "lights": []
+}

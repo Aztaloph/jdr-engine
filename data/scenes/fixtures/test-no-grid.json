@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "name": "Salon narratif",
+  "grid": {
+    "width": 16,
+    "height": 10,
+    "enabled": false
+  },
+  "objects": [
+    {
+      "id": "bg-illustration",
+      "kind": "background",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 10,
+      "quarter_turns": 0,
+      "asset_id": null
+    },
+    {
+      "id": "npc-host",
+      "kind": "npc",
+      "x": 8,
+      "y": 5,
+      "width": 1,
+      "height": 1,
+      "quarter_turns": 0,
+      "asset_id": null
+    },
+    {
+      "id": "table-tea",
+      "kind": "table",
+      "x": 6,
+      "y": 6,
+      "width": 2,
+      "height": 1,
+      "quarter_turns": 0,
+      "asset_id": null
+    }
+  ],
+  "lights": []
+}

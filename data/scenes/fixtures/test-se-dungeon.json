@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "name": "Donjon test Se",
+  "grid": {
+    "width": 12,
+    "height": 8,
+    "enabled": true
+  },
+  "objects": [
+    {
+      "id": "wall-rotated",
+      "kind": "wall",
+      "x": 1,
+      "y": 1,
+      "width": 2,
+      "height": 1,
+      "quarter_turns": 1,
+      "asset_id": null
+    },
+    {
+      "id": "door-east",
+      "kind": "door",
+      "x": 11,
+      "y": 3,
+      "width": 1,
+      "height": 1,
+      "quarter_turns": 0,
+      "asset_id": null,
+      "door": { "target_scene_id": "scene-crypte-v1" }
+    },
+    {
+      "id": "spawn-p0",
+      "kind": "spawn",
+      "x": 2,
+      "y": 6,
+      "width": 1,
+      "height": 1,
+      "quarter_turns": 0,
+      "asset_id": null,
+      "spawn": { "role": "player", "index": 0 }
+    },
+    {
+      "id": "spawn-p1",
+      "kind": "spawn",
+      "x": 4,
+      "y": 6,
+      "width": 1,
+      "height": 1,
+      "quarter_turns": 0,
+      "asset_id": null,
+      "spawn": { "role": "player", "index": 1 }
+    }
+  ],
+  "lights": [
+    { "x": 5, "y": 3, "radius_cells": 4, "color": "#f59e0b" }
+  ]
+}
