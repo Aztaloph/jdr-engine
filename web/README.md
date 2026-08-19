@@ -1,27 +1,33 @@
-# Client web — banc de test combat
+# Client web — interface de jeu (banc de test)
 
-SPA **Svelte + Vite + TypeScript** pour valider empiriquement les contrats API
-combat (`combat_state_to_dict`, `weapon_attack_result_to_dict`).
+SPA **Svelte + Vite + TypeScript** — consomme l'API FastAPI (`docs/api/CONTRAT.md`).
 
 ## Prérequis
 
-Node.js 18+ et npm. Deux **character_id** existants en base (ex. tests E2E ou Discord).
+- Node.js 18+ et npm
+- Python venv avec extra `api` (uvicorn)
+- Personnages en base SQLite (Discord ou seed) — `venv\Scripts\python.exe tools\list_characters.py`
 
-## Démarrage — deux terminaux obligatoires
+## Démarrage rapide (Windows)
 
-Le client Svelte (`5173`) appelle l'API via le proxy Vite (`/v1` → `127.0.0.1:8000`). **Sans uvicorn, le lobby renvoie HTTP 502** (connexion refusée — ce n'est pas une erreur métier).
+| Lanceur | Usage |
+|---|---|
+| **`launcher_web.bat`** | API `:8000` + client `:5173` — **sans auth** (banc ouvert) |
+| **`launcher_web_auth.bat`** | API avec `JDR_API_AUTH=1` + client → **`#/login`** |
 
-**Raccourci Windows** — double-clic sur `launcher_web.bat` à la racine du dépôt (ouvre deux fenêtres cmd : API `:8000` + client `:5173`).
+Le client appelle l'API via le **proxy Vite** (`/v1` → `127.0.0.1:8000`). Sans uvicorn : **HTTP 502** au lobby.
 
-**Terminal 1 — racine du dépôt** (API sur le port **8000**) :
+**URL à utiliser** : `http://localhost:5173` — **pas** `http://127.0.0.1:8000/` (banc statique Python legacy, hors parcours jeu).
+
+### Manuel (deux terminaux)
+
+**Terminal 1 — racine** :
 
 ```powershell
 venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 ```
 
-Attendre `Uvicorn running on http://127.0.0.1:8000` — laisser ce terminal ouvert.
-
-**Terminal 2 — dossier `web/`** (client sur le port **5173**) :
+**Terminal 2 — `web/`** :
 
 ```powershell
 cd web
@@ -29,57 +35,53 @@ npm install
 npm run dev
 ```
 
-Ouvrir **http://localhost:5173** (pas `:8000` — celui-ci sert le banc statique Python, distinct).
-
-**Lister les personnages en terminal** (si la liste du lobby est vide) :
+Auth activée :
 
 ```powershell
-venv\Scripts\python.exe tools\list_characters.py
+$env:JDR_API_AUTH="1"
+$env:JDR_AUTH_DEV="1"
+venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 ```
-
-Après ajout de la route `GET /v1/characters`, **redémarrer uvicorn** pour que le lobby charge la liste déroulante.
-
-## Installation
-
-Une seule fois : `cd web && npm install`.
 
 ## Navigation (svelte-spa-router, hash)
 
-Routage via [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-router) (hash natif). Helpers : `src/lib/navigation.ts`.
-
 | Route | Écran |
 |---|---|
-| `#/` ou `#/lobby` | Création / activation d'une rencontre |
-| `#/combat/{id}` | Combat existant (vue MJ par défaut) |
-| `#/combat/{id}?viewer={character_id}` | Combat filtré joueur |
-| `#/character/{id}` | Fiche personnage (minimal) |
+| `#/` | Landing page |
+| `#/login` | Connexion dev (auth ON) |
+| `#/lobby` | Création / activation rencontre |
+| `#/combat/{id}` | HUD combat + map tactique |
+| `#/combat/{id}?viewer={character_id}` | Vue joueur filtrée |
+| `#/character/{id}` | Fiche personnage |
 
-Le **viewer** est porté dans le hash pour des URLs partageables. Modifier le champ viewer sur l'écran combat met à jour l'URL.
+Avec **`JDR_API_AUTH=1`**, les routes protégées redirigent vers `#/login` si pas de session.
 
-## Fiche personnage
+## Parcours combat (sans curl)
 
-Depuis le lobby (**Consulter une fiche**) ou l'URL `#/character/{character_id}`. Pendant un combat, lien **fiche** depuis l'initiative si `character_id` est exposé.
+1. **Lobby** — personnages + **Créer** → `POST /v1/combats`
+2. **Activer et jouer** → grille + positions, `#/combat/{id}`
+3. **Combat** — map (clic move), attaque, sorts, fin de tour, journal, WebSocket sync multi-onglets
+4. **Clôturer** — libère les personnages pour retester
 
-## Parcours complet (sans curl)
+Auth ON : MJ = create/activate/close/advance ; joueur = mutations sur **ses** combattants uniquement.
 
-1. **Lobby** — saisir deux `character_id`, **Créer le combat** → `POST /v1/combats`.
-2. **Activer et jouer** → `POST /v1/combats/{id}/activate`, navigation vers `#/combat/{id}`.
-3. **Combat** — recharger si besoin, **Tour suivant**, **Attaquer**, sorts (viewer requis).
-4. **Clôturer** — lobby ou écran combat (`POST …/close`) libère les personnages pour retester.
+## Vérification
 
-« Tour suivant » et « Attaquer » sont désactivés si `status !== "active"`.
+```bash
+npm run check
+npm run build
+```
 
-## Types
+Suite Python (racine) : `python -m unittest discover -s tests -p "test_*.py" -q`
+
+## Types / contrats
 
 | Fichier | Contrat Python |
 |---|---|
 | `src/lib/types/combat.ts` | `combat_state_to_dict` |
 | `src/lib/types/attack.ts` | `weapon_attack_result_to_dict` |
-| `src/lib/types/sheet.ts` | `character_sheet_to_dict` (+ overlay combat) |
+| `src/lib/types/sheet.ts` | `character_sheet_to_dict` |
 
-## Vérification
+## Prochain jalon front
 
-```bash
-npm run build
-npm run check
-```
+**Jalon S — éditeur de scènes** : [`docs/scenes/BRIEF_JALON_S.md`](../docs/scenes/BRIEF_JALON_S.md)

@@ -8,3 +8,4 @@ data/characters/characters.json
 data/characters/v2/
 data/bot.db
 compendium/.srd_cache/
+/package-lock.json

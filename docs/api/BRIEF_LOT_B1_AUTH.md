@@ -2,7 +2,7 @@
 
 | Attribut | Valeur |
 |---|---|
-| **Statut** | **Accepté** (mainteneur 2026-08-14 — arbitrages §11 tranchés) |
+| **Statut** | **Livré** (2026-08-19 — commit `91863df`) |
 | **Date** | 2026-08-14 |
 | **Prérequis** | Lot **6a** map REST ✅ · lot **6b** scène statique ✅ · lot **6c** WebSocket ✅ · polish HUD ✅ · **1026** tests verts |
 | **Contrats existants** | [`CONTRAT.md`](CONTRAT.md) · [`CONTRAT_WS.md`](CONTRAT_WS.md) |

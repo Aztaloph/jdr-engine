@@ -10,7 +10,7 @@
 
 | 🧪 Tests | ⚔️ Classes | ✨ Sorts | 🐍 Python |
 |:--------:|:----------:|:-------:|:---------:|
-| **1017** ✅ | **12/12** | **42** | **3.12** |
+| **1038** ✅ | **12/12** | **42** | **3.12** |
 
 </p>
 
@@ -29,9 +29,10 @@ La **cible** est une plateforme JDR complète : moteur de règles indépendant, 
 
 | Priorité | Focus |
 |:--------:|-------|
-| 🌐 **Prochain jalon front** | **Lot 6** — map tactique (consomme l'API géométrie lot 8) |
+| 🗺️ **Prochain jalon** | **Jalon S** — éditeur de scènes ([`docs/scenes/BRIEF_JALON_S.md`](docs/scenes/BRIEF_JALON_S.md)) |
+| 🌐 **Client Web** | Lobby, HUD combat, map tactique (lot 6 ✅), auth B1 ✅ |
 | ⚔️ **Combat moteur** | C0–**C8** livrés — grille, positions, mouvement, portée spatiale |
-| 🔧 **En parallèle** | Extension **B4** (effets de sorts), contenu catalogue **B3** |
+| 🔧 **En parallèle** | Push journal WS · extension **B4** · catalogue **B3** |
 | 🛡️ **Discord** | Commandes existantes **maintenues**, pas de nouvelles features joueur |
 
 ---
@@ -96,6 +97,8 @@ venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 
 → Documentation complète : [`docs/API_LOCAL.md`](docs/API_LOCAL.md) · Swagger : `http://127.0.0.1:8000/docs`
 
+**Client Web principal** : `http://localhost:5173` (Svelte) — lancer `launcher_web.bat` ou `launcher_web_auth.bat` (auth B1). Le banc statique servi sur `:8000/` (`interfaces/api/static/`) est un **legacy dev** ; ne pas l'utiliser pour le jeu.
+
 | Méthode | Route | Effet |
 |:-------:|-------|-------|
 | `GET` | `/v1/characters/{id}/sheet` | Fiche calculée (DTO JSON) |
@@ -106,8 +109,9 @@ venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 | `POST` | `/v1/combats/{id}/attack` | Attaque d'arme fusionnée (jet + dégâts) |
 | `POST` | `/v1/combats/{id}/cast` | Sort en combat (overlay ou dispatch) |
 | `GET` | `/v1/combats/{id}` | État rencontre (`grid`, `position`, viewer) |
+| `POST` | `/v1/auth/dev-login` | Session dev (auth optionnelle — `JDR_API_AUTH=1`) |
 
-Client Web (`web/`, Svelte + Vite) — lobby, HUD combat, landing ; proxy `/v1` → `:8000`. Voir [`ROADMAP.md`](ROADMAP.md) piste client Web.
+Client Web (`web/`, Svelte + Vite) — landing, login (auth), lobby, HUD combat + map tactique, WebSocket ; proxy `/v1` → `:8000`. Voir [`ROADMAP.md`](ROADMAP.md) piste client Web.
 
 ---
 
@@ -171,7 +175,7 @@ Créez un rôle Discord nommé **`MJ`**. Repos, montée de niveau et suppression
 python -m unittest discover -s tests -p "test_*.py" -q
 ```
 
-**1017 tests** — moteur de règles, sorts, combat (C0–C8), géométrie, effets actifs (ADR-006), API v1 combat, client Web (intégration), persistance SQLite.
+**1038 tests** — moteur de règles, sorts, combat (C0–C8), géométrie, effets actifs (ADR-006), API v1 combat + auth, client Web, persistance SQLite.
 
 Validation compendium :
 
@@ -220,7 +224,7 @@ Le **Rule Engine** charge le Compendium YAML et calcule les stats dérivées —
 | **Concentration (hors combat)** | ✅ | Pose, remplacement, repos, affichage fiche (13 sorts) |
 | **DTO + API HTTP** | ✅ | `output_serializers`, endpoints personnage, banc de test |
 | **Étape 4 — Combat moteur** | ✅ | C0–**C8** — géométrie, grille, mouvement, portée (blob v3) |
-| **Client Web** | 🚧 | Lobby, HUD combat (lot 7 ✅), landing ; **prochain** : map tactique (lot 6) |
+| **Client Web** | ✅ | Landing, lobby, HUD combat lot 7, **map tactique lot 6**, **auth B1** ; **prochain** : jalon S (éditeur scènes) |
 | **B4 — Effets de sorts** | 🚧 | `bless` / `hunters_mark` / `hex` via registre ; suite catalogue à venir |
 
 Documentation sorts → [`docs/SPELLS_INVENTORY.md`](docs/SPELLS_INVENTORY.md) · [`docs/SPELL_SCHEMA.md`](docs/SPELL_SCHEMA.md)

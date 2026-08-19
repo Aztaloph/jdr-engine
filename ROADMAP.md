@@ -39,7 +39,7 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 |---|---|
 | Tests unitaires | **1038** verts (`python -m unittest discover -s tests -p "test_*.py" -q`) |
 | Sorts curated (YAML) | **42** (`compendium/dnd5e/entries/spells/*/definition.yaml`) |
-| Commit HEAD | `91863df` |
+| Commit HEAD | `58335d2` |
 | Dernière sync auto | 2026-08-19 |
 <!-- ROADMAP-AUTO:END -->
 
@@ -49,8 +49,8 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 |---|---|
 | Classes SRD 2014 | 12/12 jouables (création + montée de niveau 1–20 full casters, ASI 5 paliers) |
 | Grimoire mage (quota niv. 7) | **18** sorts |
-| Client web | `web/` — lobby, combat, landing livrés ; HUD visuel lot 4 ✅ ; **MVP combat jouable lot 7 ✅** |
-| Derniers commits (web) | `d6f37c1` brief Fable · `8d56735` landing · `9f54722`/`038efd7` HUD combat · `fc66507` tokens |
+| Client web | `web/` — lobby, combat, landing, **map tactique lot 6 ✅**, **auth B1 ✅** |
+| Derniers commits (web) | `58335d2` actions rapides · `91863df` auth B1 · `e69a77c` polish HUD · `d4f6415` WebSocket |
 
 ---
 
@@ -98,7 +98,7 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
   - [x] **ADR-005 — Fin de rencontre** : sync PV/concentration à `close_combat`, auto-close `advance_turn`, encounter-scoped conditions.
   - [x] **ADR-006 — Effets actifs unifiés** (doc `c48d9b6` ; impl. A+B+C `c09a89b`→`94156f4`, poussé sur `main`) : `ActiveEffect`, horloge `round_number`, registre `rules/effects/`, migration `bless`/`hunters_mark`, blob `COMBAT_STATE_VERSION` **2**, adaptateurs `collect_*`, persistance consolidée.
   - [x] **C8 — Géométrie de combat (lot 8 moteur + API)** — ✅ **clôturé août 2026** — positions, grille (`grid` dans l'état), distance/portée, `movement_remaining_ft`, `POST …/move`, validation spatiale attaques/sorts, blob **v3**. Brief : [`docs/combat/BRIEF_LOT8_GEOMETRIE.md`](docs/combat/BRIEF_LOT8_GEOMETRIE.md). *Hors périmètre* : LoS, pathfinding, brouillard de guerre. **Prérequis lot 6 front (map tactique).**
-- [ ] **ÉTAPE 6 : API (REST + WebSocket)** — 🚧 **REST combat + personnage livrés** (`docs/api/CONTRAT.md`, `interfaces/api/`) : cycle de vie combat, attaque fusionnée, cast overlay, `advance-turn`, clôture, viewer, **WebSocket map (lot 6c ✅)**. **Reste ouvert** : auth multi-poste (lot B1), push journal WS.
+- [ ] **ÉTAPE 6 : API (REST + WebSocket)** — 🚧 **REST combat + personnage livrés** (`docs/api/CONTRAT.md`, `interfaces/api/`) : cycle de vie combat, attaque fusionnée, cast overlay, `advance-turn`, clôture, viewer, **WebSocket map (lot 6c ✅)**, **auth multi-poste (lot B1 auth ✅)**. **Reste ouvert** : push journal WS ; amendement CONTRAT auth (dette B1).
 - [ ] **ÉTAPE 7 : Client Web (interface de jeu principale)** — 🚧 **en cours** ([ADR-007](docs/adr/ADR-007-stack-client-web.md)). Découpage : section **Piste client Web** ci-dessous. Spécification UX : VISION.md §4.
 - [ ] **ÉTAPE 8 : Discord minimal** — 🔜 nouveau (ordre 5). Réduction au social : chat, lancement de partie, `/personnage` → Web, notifications (via EventBus). Voir VISION.md §3.
 - [ ] **ÉTAPE 9 : Contenu & carte** — 🔭 long terme (ordre 6). Campagnes, packs d'assets, carte/VTT, base marketplace. Voir VISION.md §4.5 et §8.
@@ -123,8 +123,10 @@ Les **PV** et **emplacements de sorts** restent **dérivés** (calculés par le 
 - [x] **Lot 5 — Landing page publique** — direction artistique produit (`LandingScreen.svelte`, route `/`). Horizon marketing, hors combat.
 - [x] **Lot 7 — MVP combat jouable (web + API)** — ✅ **clôturé août 2026** — boucle de session sans map tactique : sorts action / bonus / réaction / soins branchés (`castable_*` viewer), sélecteur de cible HUD, journal clarifié, parcours **clerc**, **mage** et **barde** validés (tests moteur + API). *Hors périmètre volontaire* : compétences combat (placeholder), `bless` multi-cibles UI, map (lot 6).
 - [x] **Lot 6 — Map tactique (front + temps réel)** — ✅ **clôturé août 2026** — 6a map REST, 6b scène statique, 6c WebSocket multi-onglets, polish HUD ; 6d Figma optionnel non livré. Briefs : [`BRIEF_LOT6_MAP_TACTIQUE.md`](docs/web/BRIEF_LOT6_MAP_TACTIQUE.md), [`BRIEF_LOT6C_WEBSOCKET.md`](docs/web/BRIEF_LOT6C_WEBSOCKET.md). Commits : `81fc9e6`, `6f26466`, `d4f6415`, `e69a77c`.
+- [x] **Lot B1 auth** (ÉTAPE 6) — ✅ **clôturé août 2026** — sessions SQLite, dev-login, garde-fous combat/personnages/WS, client login + UI préventive. Brief : [`docs/api/BRIEF_LOT_B1_AUTH.md`](docs/api/BRIEF_LOT_B1_AUTH.md). Commit : `91863df`. Lanceur : `launcher_web_auth.bat`.
+- [ ] **Jalon S — Éditeur de scènes** — brief accepté [`docs/scenes/BRIEF_JALON_S.md`](docs/scenes/BRIEF_JALON_S.md) ; découpage Sa→Sg ; seuil V1 jouable MJ.
 
-**Prochain jalon** : **lot B1 auth** (ÉTAPE 6 — authentification & autorisation API) — brief [`docs/api/BRIEF_LOT_B1_AUTH.md`](docs/api/BRIEF_LOT_B1_AUTH.md) ; lots **B3** moteur sorts possibles en parallèle.
+**Prochain jalon** : **jalon S — éditeur de scènes** (Sa format) — brief [`docs/scenes/BRIEF_JALON_S.md`](docs/scenes/BRIEF_JALON_S.md) ; **push journal WS** et **B3/B4** moteur possibles en parallèle.
 
 ---
 
@@ -165,7 +167,7 @@ Tous les jalons P2a–P2h sont livrés. Grimoire mage : consultable via **`/pers
 
 Chaîne validée : ASI **5 paliers** (4/8/12/16/19), cap **niv. 20** full casters, cantrip scaling 2d10/3d10/4d10, UI **`AsiDistributionView`**.
 
-**Prochain jalon** : **lot B1 auth** (ÉTAPE 6) — voir [`docs/api/BRIEF_LOT_B1_AUTH.md`](docs/api/BRIEF_LOT_B1_AUTH.md).
+**Prochain jalon** : **jalon S — éditeur de scènes** (Sa) — voir [`docs/scenes/BRIEF_JALON_S.md`](docs/scenes/BRIEF_JALON_S.md).
 
 ---
 
@@ -175,7 +177,8 @@ Items hors périmètre des lots fonctionnels — à traiter en passes dédiées,
 
 | Priorité | Item | Contexte |
 |---|---|---|
-| 🔵 | **Edge cap-20 ASI (base 18 vs 19 + racial)** | Invariant cap effectif ≤ 20 démontré ; cas limite UI/validation à durcir en passe dédiée |
+| 🔵 | **Amendement CONTRAT auth (B1)** | Codes 401/403, token WS — dette documentée brief B1 ; implémentation API faite |
+| 🔵 | **Hook pre-commit / Python système** | Le hook appelle `python` (pas le venv) — échec tests si Py 3.14 hors venv ; préfixer PATH venv ou corriger hook |
 | 🔵 | **Scaling upcast `slot_scaling` — clés B4** (`extra_targets`, `temp_hp`, `cold_damage`) | `missiles` / `damage_dice` / `healing_dice` livrés dans `cast.py` ; reste ouvert : `armor_of_agathys` (PV temp., dégâts de contact) — **Axe B4** |
 | 🔵 | **Concentration — durées et effets mécaniques** | Lot 1 ✅ hors combat ; rupture CON C5 ✅ ; horloge round ADR-006 ✅ ; **`bless`/`hunters_mark` via registre** ADR-006 A–B ✅. **Ouvert** : autres sorts à durée (`hex`, etc.) |
 | 🔵 | **`CharacterSheet.trait_ids` contient des libellés, pas des ids** | `calculator.py` assigne `trait_ids = resolve_race_trait_labels()` (libellés FR) ; les vrais ids sont dans `resolve_race_traits()` (`entry_id`). DTO n'expose que `trait_names`. Corriger `build_character_sheet` + tests. |

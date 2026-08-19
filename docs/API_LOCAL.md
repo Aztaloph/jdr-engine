@@ -19,6 +19,15 @@ venv\Scripts\python.exe -m uvicorn --factory interfaces.api.app:create_app
 
 Écoute : `http://127.0.0.1:8000` · Swagger : `http://127.0.0.1:8000/docs`
 
+## Client Web (interface de jeu)
+
+Le **client principal** est le SPA Svelte dans `web/` :
+
+- **Sans auth** : `launcher_web.bat` → `http://localhost:5173`
+- **Auth B1** : `launcher_web_auth.bat` → `http://localhost:5173/#/login`
+
+`GET http://127.0.0.1:8000/` sert un **banc statique legacy** (`interfaces/api/static/`) — utile pour debug curl, **pas** le parcours lobby/combat/map.
+
 ## Endpoints v1
 
 | Méthode | Route | Corps | Effet |
