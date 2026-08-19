@@ -23,7 +23,7 @@ from jdr_engine.persistence.character_repository import (
 
 logger = logging.getLogger(__name__)
 
-DB_SCHEMA_VERSION = 5
+DB_SCHEMA_VERSION = 6
 DEFAULT_DB_PATH = get_project_root() / "data" / "bot.db"
 
 # Marqueurs one-shot — SQLite est la source de vérité après le premier import.
@@ -129,6 +129,29 @@ _CREATE_API_SESSIONS_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_api_sessions_expires
     ON api_sessions (expires_at);
 """
+
+_CREATE_SCENES = """
+CREATE TABLE IF NOT EXISTS scenes (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    json TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+_CREATE_SCENES_OWNER_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_scenes_owner_id
+    ON scenes (owner_id);
+"""
+
+
+def ensure_scenes_schema(db_path: Path | None = None) -> None:
+    """Crée la table ``scenes`` (schéma SQL v6, jalon S)."""
+    path = db_path or get_db_path()
+    with get_connection(path) as conn:
+        conn.executescript(_CREATE_SCENES)
+        conn.executescript(_CREATE_SCENES_OWNER_INDEX)
 
 
 def get_db_path() -> Path:
@@ -260,6 +283,8 @@ def init_database(db_path: Path | None = None) -> Path:
         conn.executescript(_CREATE_COMBAT_EVENT_LOG_INDEX)
         conn.executescript(_CREATE_API_SESSIONS)
         conn.executescript(_CREATE_API_SESSIONS_INDEX)
+        conn.executescript(_CREATE_SCENES)
+        conn.executescript(_CREATE_SCENES_OWNER_INDEX)
         conn.execute(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
             ("schema_version", str(DB_SCHEMA_VERSION)),

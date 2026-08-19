@@ -31,6 +31,7 @@ from interfaces.api.combat_ws import (
     attach_combat_ws_handlers,
     register_combat_ws_routes,
 )
+from interfaces.scenes.routes import register_scene_routes
 from interfaces.api.diagnostic.event_buffer import EventRingBuffer
 from interfaces.api.diagnostic.recording_bus import RecordingEventBus
 from interfaces.api.errors import ApiError, register_error_handlers
@@ -311,6 +312,7 @@ def create_app(
         initiative_rng=combat_initiative_rng,
         attack_rng=combat_attack_rng,
     )
+    register_scene_routes(app, db_path=resolved_db_path)
 
     combat_ws_hub = CombatWsHub()
     attach_combat_ws_handlers(combat_ws_hub, event_bus)

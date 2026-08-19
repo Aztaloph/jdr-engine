@@ -8,6 +8,17 @@ Source de vérité détaillée : [`BRIEF_JALON_S.md`](BRIEF_JALON_S.md) §5.
 venv\Scripts\python.exe tools\validate_scenes.py
 ```
 
+## API (lot Sb)
+
+| Méthode | Route | Auth |
+|---|---|---|
+| `GET` | `/v1/scenes` | Session |
+| `POST` | `/v1/scenes` | GM |
+| `GET` | `/v1/scenes/{id}` | Session |
+| `PUT` | `/v1/scenes/{id}` | GM |
+| `DELETE` | `/v1/scenes/{id}` | GM |
+| `GET` | `/v1/scenes/{id}/export` | Session — blob autonome |
+
 Fixtures de référence : `data/scenes/fixtures/*.json`
 
 ## Résumé v1
