@@ -2126,9 +2126,9 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: var(--color-accent-text);
-    background: var(--color-accent);
-    border: 1px solid var(--color-accent);
+    color: var(--color-text-primary);
+    background: var(--color-bg-panel);
+    border: 1px solid var(--color-border-default);
     border-radius: var(--radius-md);
     cursor: pointer;
     text-align: center;
@@ -2139,8 +2139,8 @@
   }
 
   .action-menu-btn :global(svg) {
-    color: var(--color-accent-text);
-    opacity: 1;
+    color: var(--color-text-muted);
+    opacity: 0.9;
     flex-shrink: 0;
   }
 
@@ -2151,21 +2151,21 @@
     white-space: nowrap;
   }
 
-  .action-menu-btn:hover {
-    background: var(--color-accent-hover);
-    border-color: var(--color-accent-hover);
+  .action-menu-btn:hover:not(:disabled) {
+    border-color: rgb(245 158 11 / 0.45);
+    background: rgb(0 0 0 / 0.35);
   }
 
   .action-menu.menu-open .action-menu-btn {
-    color: var(--color-text-primary);
-    background: var(--color-bg-panel);
-    border-color: var(--color-border-default);
-    font-weight: 600;
+    color: var(--color-accent-text);
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    font-weight: 700;
   }
 
   .action-menu.menu-open .action-menu-btn :global(svg) {
-    color: var(--color-accent);
-    opacity: 0.9;
+    color: var(--color-accent-text);
+    opacity: 1;
   }
 
   .action-menu-body {
